@@ -296,20 +296,20 @@ This is no longer necessary, because it is accessible via `match` directly."}
          alpha-node (get-in session (:alpha-node-path join-node))]
      ;; SHORTCUT: if we know the id, only loop over alpha facts with that id
      (if-let [id (some->> join-node :id-key (get vars))]
-       (reduce
-         (fn [session alpha-fact]
+       (reduce-kv
+         (fn [session _ alpha-fact]
            (left-activate-join-node session join-node id+attrs vars token alpha-fact))
          session
-         (vals (get-in alpha-node [:facts id])))
-       (reduce
-         (fn [session attr->fact]
-           (reduce
-             (fn [session alpha-fact]
+         (get-in alpha-node [:facts id]))
+       (reduce-kv
+         (fn [session _ attr->fact]
+           (reduce-kv
+             (fn [session _ alpha-fact]
                (left-activate-join-node session join-node id+attrs vars token alpha-fact))
              session
-             (vals attr->fact)))
+             attr->fact))
          session
-         (vals (:facts alpha-node))))))
+         (:facts alpha-node)))))
   ([session join-node id+attrs vars token alpha-fact]
    (if-let [new-vars (get-vars-from-fact vars (:condition join-node) alpha-fact)]
      (let [id+attr (get-id-attr alpha-fact)
