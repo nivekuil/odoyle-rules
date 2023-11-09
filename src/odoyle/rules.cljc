@@ -215,7 +215,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
         *last-id (volatile! (:last-id session))
         join-node-id (vswap! *last-id inc)
         mem-node-id (vswap! *last-id inc)
-        parent-mem-node-id (-> session :mem-node-ids last)
+        parent-mem-node-id (-> session :mem-node-ids peek)
         mem-node (map->MemoryNode {:id mem-node-id
                                    :parent-id join-node-id
                                    :child-id nil
@@ -600,7 +600,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                        (fn [session node-id]
                          (update-in session [:beta-nodes node-id] assoc :trigger false))
                        session
-                       (into then-finally-queue (map first then-queue)))
+                       (into then-finally-queue (map (fn [[id]] id)) then-queue))
              ;; keep a copy of the beta nodes before executing the :then functions.
              ;; if we pull the beta nodes from inside the reduce fn below,
              ;; it'll produce non-deterministic results because `matches`
@@ -654,7 +654,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
     (throw (ex-info (str (:name rule) " already exists in session") {})))
   (let [conditions (:conditions rule)
         session (reduce add-condition session conditions)
-        leaf-node-id (-> session :mem-node-ids last)
+        leaf-node-id (-> session :mem-node-ids peek)
         ;; the bindings (symbols) from the :what block
         bindings (:bindings session)
         ;; update all memory nodes with
