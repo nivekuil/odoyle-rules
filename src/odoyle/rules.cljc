@@ -295,7 +295,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
    (let [join-node (get-in session [:beta-nodes node-id])
          alpha-node (get-in session (:alpha-node-path join-node))]
      ;; SHORTCUT: if we know the id, only loop over alpha facts with that id
-     (if-let [id (some->> join-node :id-key (get vars))]
+     (if-let [id (some->> (:id-key join-node) (get vars))]
        (reduce-kv
          (fn [session _ alpha-fact]
            (left-activate-join-node session join-node id+attrs vars token alpha-fact))
