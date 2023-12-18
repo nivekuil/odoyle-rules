@@ -865,18 +865,19 @@ This is no longer necessary, because it is accessible via `match` directly."}
 
 (defn retract
   "Retracts the fact with the given id + attr combo."
-  [session id attr]
-  (let [id+attr [id attr]
-        node-paths (get-in session [:id-attr-nodes id+attr])]
-    (when-not node-paths
-      (throw (ex-info (str id+attr " not in session") {})))
-    (reduce
-      (fn [session node-path]
-        (let [node (get-in session node-path)
-              fact (get-in node [:facts id attr])]
-          (right-activate-alpha-node session node-path (->Token fact :retract nil))))
-      session
-      node-paths)))
+  ([session id attr]
+   (retract session [id attr]))
+  ([session [id attr :as id+attr]]
+   (let [node-paths (get-in session [:id-attr-nodes id+attr])]
+     (if node-paths
+       (reduce
+        (fn [session node-path]
+          (let [node (get-in session node-path)
+                fact (get-in node [:facts id attr])]
+            (right-activate-alpha-node session node-path (->Token fact :retract nil))))
+        session
+        node-paths)
+       session))))
 
 (s/fdef retract!
   :args (s/cat :id ::id, :attr ::attr))
