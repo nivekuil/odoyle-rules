@@ -587,7 +587,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
   ([session]
    (fire-rules session {}))
   ([session opts]
-   (let [then-queue (:then-queue session)
+   (let [session (cond-> session (:transform opts) ((:transform opts)))
+         then-queue (:then-queue session)
          then-finally-queue (:then-finally-queue session)]
      (if (and (or (seq then-queue) (seq then-finally-queue))
               ;; don't fire while inside a rule
