@@ -620,7 +620,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                                   (binding [*session* session
                                             *mutable-session* (volatile! session)
                                             *match* vars]
-                                    (execute-fn #(then-fn session vars) node-id)
+                                    (execute-fn #(then-fn (assoc session :id+attrs id+attrs) vars) node-id)
                                     @*mutable-session*)))
                               session)))
                       session
