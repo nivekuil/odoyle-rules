@@ -321,7 +321,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
 
 (def ^:private ^:dynamic *triggered-node-ids* nil)
 
-(defn fast-set [] #?(:clj #{} :cljs (js/Array.)))
+#_#_(defn fast-set [] #?(:clj #{} :cljs (js/Array.)))
 (defn conj-set [acc n]
   #?(:clj (conj acc n)
      :cljs (do (.push ^js acc n) acc)))
@@ -386,9 +386,9 @@ This is no longer necessary, because it is accessible via `match` directly."}
                     (if (and leaf-node? (:trigger node))
                       (cond-> $
                         (:then-fn node)
-                        (update :then-queue conj-set [node-id id+attrs])
+                        (update :then-queue conj [node-id id+attrs])
                         (:then-finally-fn node)
-                        (update :then-finally-queue conj-set node-id))
+                        (update :then-finally-queue conj node-id))
                       $)
                     (update-in $ [:beta-nodes (:parent-id node) :old-id-attrs]
                                conj id+attr))
@@ -396,7 +396,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                   (as-> session $
                     (update-in $ node-path update :matches dissoc id+attrs)
                     (if (and leaf-node? (:then-finally-fn node))
-                      (update $ :then-finally-queue conj-set node-id)
+                      (update $ :then-finally-queue conj node-id)
                       $)
                     (update-in $ [:beta-nodes (:parent-id node) :old-id-attrs]
                                disj id+attr)))]
@@ -498,7 +498,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                 (if (not (clojure.core/contains? node-paths node-path))
                   (let [node (get-in session node-path)
                         old-fact (get-in node [:facts id attr])]
-                    (assert old-fact)
+               (assert old-fact "retract")
                     (right-activate-alpha-node session node-path (->Token old-fact :retract nil)))
                   session))
               $
@@ -509,7 +509,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                 (if (clojure.core/contains? existing-node-paths node-path)
                   (let [node (get-in session node-path)
                         old-fact (get-in node [:facts id attr])]
-                    (assert old-fact)
+               (assert old-fact "update")
                     (right-activate-alpha-node session node-path (->Token fact :update old-fact)))
                   (right-activate-alpha-node session node-path (->Token fact :insert nil))))
               $
@@ -577,7 +577,6 @@ This is no longer necessary, because it is accessible via `match` directly."}
 (s/fdef fire-rules
   :args (s/cat :session ::session
                :opts (s/? (s/keys :opt-un [::recursion-limit]))))
-
 (defn fire-rules
   "Fires :then and :then-finally blocks for any rules whose matches have been updated.
   The opts map may contain:
@@ -590,6 +589,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
    (let [session (cond-> session (:transform opts) ((:transform opts)))
          then-queue (:then-queue session)
          then-finally-queue (:then-finally-queue session)]
+
      (if (and (or (seq then-queue) (seq then-finally-queue))
               ;; don't fire while inside a rule
               (nil? *session*))
@@ -780,8 +780,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
     :rule-name->node-id {}
     :node-id->rule-name {}
     :id-attr-nodes {}
-    :then-queue (fast-set)
-    :then-finally-queue (fast-set)}))
+    :then-queue #{}
+    :then-finally-queue #{}}))
 
 (s/def ::session #(instance? Session %))
 
