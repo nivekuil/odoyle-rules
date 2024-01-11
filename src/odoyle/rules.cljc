@@ -378,6 +378,10 @@ This is no longer necessary, because it is accessible via `match` directly."}
         ;; the id+attr of this token is the last one in the vector
         id+attr (peek id+attrs)
         ;; update session
+        session (update-in session node-path assoc-in [:old-matches id+attrs]
+                           (-> session
+                               (get-in node-path)
+                               (get-in [:matches id+attrs])))
         session (case kind
                   (:insert :update)
                   (as-> session $
@@ -616,13 +620,15 @@ This is no longer necessary, because it is accessible via `match` directly."}
              ;; execute :then functions
              session (reduce
                       (fn [session [node-id id+attrs]]
-                        (let [{:keys [matches then-fn]} (get beta-nodes node-id)]
+                        (let [{:keys [matches then-fn old-matches]} (get beta-nodes node-id)]
                           (or (when-let [{:keys [vars enabled]} (get matches id+attrs)]
                                 (when enabled
                                   (binding [*session* session
                                             *mutable-session* (volatile! session)
                                             *match* vars]
-                                    (execute-fn #(then-fn (assoc session :id+attrs id+attrs) vars) node-id)
+                                    (execute-fn #(then-fn (assoc session
+                                                                 :old-match (:vars (get old-matches id+attrs))
+                                                                 :id+attrs id+attrs) vars) node-id)
                                     @*mutable-session*)))
                               session)))
                       session
@@ -630,10 +636,13 @@ This is no longer necessary, because it is accessible via `match` directly."}
              ;; execute :then-finally functions
              session (reduce
                       (fn [session [node-id id+attrs]]
-                        (let [{:keys [then-finally-fn]} (get beta-nodes node-id)]
+                        (let [{:keys [old-matches then-finally-fn]} (get beta-nodes node-id)]
                           (binding [*session* session
                                     *mutable-session* (volatile! session)]
-                            (execute-fn #(then-finally-fn (assoc session :id+attrs id+attrs)) node-id)
+                            (execute-fn #(then-finally-fn (assoc session
+                                                                 :old-match (:vars (get old-matches id+attrs))
+                                                                 
+                                                                 :id+attrs id+attrs)) node-id)
                             @*mutable-session*)))
                       session
                       then-finally-queue)]
