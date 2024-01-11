@@ -286,7 +286,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
     vars
     (:bindings condition)))
 
-(def ^:private get-id-attr (juxt :id :attr))
+(defn- get-id-attr [session m]
+  ((:make-id+attr session) (:id m) (:attr m)))
 
 (declare left-activate-memory-node)
 
@@ -312,7 +313,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
         (:facts alpha-node)))))
   ([session join-node id+attrs vars token alpha-fact]
    (if-let [new-vars (get-vars-from-fact vars (:condition join-node) alpha-fact)]
-     (let [id+attr (get-id-attr alpha-fact)
+     (let [id+attr (get-id-attr session alpha-fact)
            id+attrs (conj id+attrs id+attr)
            new-token (->Token alpha-fact (:kind token) nil)
            new? (not (clojure.core/contains? (:old-id-attrs join-node) id+attr))]
@@ -425,7 +426,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
         session))))
 
 (defn- right-activate-alpha-node [session node-path {:keys [fact kind old-fact] :as token}]
-  (let [[id attr :as id+attr] (get-id-attr fact)]
+  (let [[id attr :as id+attr] (get-id-attr session fact)]
     (as-> session $
       (case kind
         :insert
@@ -490,7 +491,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
          (:children alpha-node))))))
 
 (defn- upsert-fact [session id attr value node-paths]
-  (let [id+attr [id attr]
+  (let [id+attr ((:make-id+attr session) id attr)
         fact (->Fact id attr value)]
     (if-let [existing-node-paths (get-in session [:id-attr-nodes id+attr])]
       (as-> session $
@@ -785,8 +786,9 @@ This is no longer necessary, because it is accessible via `match` directly."}
 
 (defn ->session
   "Returns a new session."
-  []
+  [& {:as opts}]
   (map->Session
+   (merge
    {:alpha-node (map->AlphaNode {:path [:alpha-node]
                                  :test-field nil
                                  :test-value nil
@@ -799,7 +801,9 @@ This is no longer necessary, because it is accessible via `match` directly."}
     :node-id->rule-name {}
     :id-attr-nodes {}
     :then-queue #{}
-    :then-finally-queue #{}}))
+     :then-finally-queue #{}
+     :make-id+attr vector}
+    opts)))
 
 (s/def ::session #(instance? Session %))
 
@@ -884,10 +888,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
 
 (defn retract
   "Retracts the fact with the given id + attr combo."
-  ([session id attr]
-   (retract session [id attr]))
-  ([session [id attr :as id+attr]]
-   (let [node-paths (get-in session [:id-attr-nodes id+attr])]
+  [session id attr]
+  (let [node-paths (get-in session [:id-attr-nodes ((:make-id+attr session) id attr)])]
      (if node-paths
        (reduce
         (fn [session node-path]
@@ -896,7 +898,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
             (right-activate-alpha-node session node-path (->Token fact :retract nil))))
         session
         node-paths)
-       session))))
+      session)))
 
 (s/fdef retract!
   :args (s/cat :id ::id, :attr ::attr))
@@ -952,7 +954,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
 (defn contains?
   "Returns true if the session contains a fact with the given id and attribute."
   [session id attr]
-  (clojure.core/contains? (:id-attr-nodes session) [id attr]))
+  (clojure.core/contains? (:id-attr-nodes session) ((:make-id+attr session) id attr)))
 
 (s/fdef wrap-rule
   :args (s/cat :rule #(instance? Rule %)
