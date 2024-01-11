@@ -606,7 +606,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                             (f)
                             (vswap! *node-id->triggered-node-ids update node-id #(into (or % #{}) @*triggered-node-ids*))))
              ;; reset state
-             session (assoc session :then-queue #{} :then-finally-queue #{})
+             session (assoc session :then-queue [] :then-finally-queue [])
              untrigger-fn (fn [session [node-id]]
                         (update-in session [:beta-nodes node-id] assoc :trigger false))
              session (reduce untrigger-fn session then-queue)
@@ -727,6 +727,10 @@ This is no longer necessary, because it is accessible via `match` directly."}
   :args (s/cat :session ::session
                :rule-name qualified-keyword?))
 
+(defn remove-node-from-execute-queue [queue node-id]
+  (into [] (remove (fn [execution] (identical? (:node-id execution) node-id)))
+        queue))
+
 (defn remove-rule
   "Removes a rule from the given session."
   [session rule-name]
@@ -747,22 +751,9 @@ This is no longer necessary, because it is accessible via `match` directly."}
             session))
         (update :rule-name->node-id dissoc rule-name)
         (update :node-id->rule-name dissoc node-id)
-        (update :then-queue (fn [then-queue]
-                              (reduce
-                               (fn [s [id _ :as tuple]]
-                                 (if (= id node-id)
-                                   (disj s tuple)
-                                   s))
-                               then-queue
-                               then-queue)))
-        (update :then-finally-queue (fn [then-finally-queue]
-                                      (reduce
-                                       (fn [s [id _ :as tuple]]
-                                         (if (= id node-id)
-                                           (disj s tuple)
-                                           s))
-                                       then-finally-queue
-                                       then-finally-queue))))
+        (update :then-queue remove-node-from-execute-queue node-id)
+        (update :then-finally-queue remove-node-from-execute-queue node-id))
+    
     (throw (ex-info (str rule-name " does not exist in session") {}))))
 
 #?(:clj
@@ -799,8 +790,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
     :rule-name->node-id {}
     :node-id->rule-name {}
     :id-attr-nodes {}
-    :then-queue #{}
-     :then-finally-queue #{}
+     :then-queue []
+     :then-finally-queue []
      :make-id+attr vector}
     opts)))
 
