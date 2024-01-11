@@ -607,11 +607,10 @@ This is no longer necessary, because it is accessible via `match` directly."}
                             (vswap! *node-id->triggered-node-ids update node-id #(into (or % #{}) @*triggered-node-ids*))))
              ;; reset state
              session (assoc session :then-queue #{} :then-finally-queue #{})
-             session (reduce
-                      (fn [session [node-id]]
+             untrigger-fn (fn [session [node-id]]
                         (update-in session [:beta-nodes node-id] assoc :trigger false))
-                      session
-                      (into then-finally-queue then-queue))
+             session (reduce untrigger-fn session then-queue)
+             session (reduce untrigger-fn session then-finally-queue)
              ;; keep a copy of the beta nodes before executing the :then functions.
              ;; if we pull the beta nodes from inside the reduce fn below,
              ;; it'll produce non-deterministic results because `matches`
