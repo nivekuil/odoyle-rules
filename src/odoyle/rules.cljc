@@ -422,7 +422,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
        (get-in session [:beta-nodes parent-id :matches]))
       ;; root node
       (if-let [vars (get-vars-from-fact {} condition fact)]
-        (left-activate-memory-node session child-id [id+attr] vars token true)
+        (left-activate-memory-node session child-id ((:make-id+attrs session) id+attr) vars token true)
         session))))
 
 (defn- right-activate-alpha-node [session node-path {:keys [fact kind old-fact] :as token}]
@@ -792,7 +792,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
     :id-attr-nodes {}
      :then-queue []
      :then-finally-queue []
-     :make-id+attr vector}
+     :make-id+attr vector
+     :make-id+attrs vector}
     opts)))
 
 (s/def ::session #(instance? Session %))
