@@ -630,9 +630,9 @@ This is no longer necessary, because it is accessible via `match` directly."}
                                   (binding [*session* session
                                             *mutable-session* (volatile! session)
                                             *match* vars]
-                                    (execute-fn #(then-fn (assoc session
-                                                                 :old-match (:vars (get old-matches id+attrs))
-                                                                 :id+attrs id+attrs) vars) node-id)
+                                    (execute-fn #(then-fn session (with-meta vars
+                                                                    {::old-match (:vars (get old-matches id+attrs))
+                                                                     ::id+attrs id+attrs})) node-id)
                                     @*mutable-session*)))
                               session)))
                       session
@@ -642,13 +642,11 @@ This is no longer necessary, because it is accessible via `match` directly."}
                       (fn [session execution]
                         (let [node-id (:node-id execution)
                               id+attrs (:id+attrs execution)
-                              {:keys [old-matches then-finally-fn]} (get beta-nodes node-id)]
+                              {:keys [old-matches then-finally-fn]} (get beta-nodes node-id)
+                              vars (:vars (get old-matches id+attrs))]
                           (binding [*session* session
                                     *mutable-session* (volatile! session)]
-                            (execute-fn #(then-finally-fn (assoc session
-                                                                 :old-match (:vars (get old-matches id+attrs))
-                                                                 
-                                                                 :id+attrs id+attrs)) node-id)
+                            (execute-fn #(then-finally-fn session (with-meta vars {::id+attrs id+attrs})) node-id)
                             @*mutable-session*)))
                       session
                       then-finally-queue)]
@@ -776,7 +774,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                          ~(when then-body
                             `(fn ~fn-name [~'session ~arg] ~@then-body))
                          ~(when then-finally-body
-                            `(fn ~fn-name [~'session] ~@then-finally-body)))))
+                            `(fn ~fn-name [~'session ~arg] ~@then-finally-body)))))
       []
       (mapv ->rule (parse ::rules rules)))))
 
