@@ -469,28 +469,30 @@ This is no longer necessary, because it is accessible via `match` directly."}
 
 (defn- get-alpha-nodes-for-fact [session alpha-node id attr value root?]
   (if root?
+    (persistent!
     (reduce
      (fn [nodes child]
-       (into nodes (get-alpha-nodes-for-fact session child id attr value false)))
+        (reduce conj! nodes (get-alpha-nodes-for-fact session child id attr value false)))
      ;; if the root node has successors, that means
      ;; at least one condition had binding symbols
      ;; in all three columns. in that case, add the
      ;; root node to the nodes we are returning,
      ;; because all incoming facts must go through it.
      (if (seq (:successors alpha-node))
-       #{(:path alpha-node)}
-       #{})
-     (:children alpha-node))
+        (transient #{(:path alpha-node)})
+        (transient #{}))
+      (:children alpha-node)))
     (let [test-value (case (:test-field alpha-node)
                        :id id
                        :attr attr
                        :value value)]
       (when (= test-value (:test-value alpha-node))
+        (persistent!
         (reduce
          (fn [nodes child]
-           (into nodes (get-alpha-nodes-for-fact session child id attr value false)))
-         #{(:path alpha-node)}
-         (:children alpha-node))))))
+            (reduce conj! nodes (get-alpha-nodes-for-fact session child id attr value false)))
+          (transient #{(:path alpha-node)})
+          (:children alpha-node)))))))
 
 (defn- upsert-fact [session id attr value node-paths]
   (let [id+attr ((:make-id+attr session) id attr)
