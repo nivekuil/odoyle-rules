@@ -89,6 +89,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                        leaf-node-id ;; id of the MemoryNode at the end (same as id if this is the leaf node)
                        condition ;; Condition associated with this node
                        matches ;; map of id+attrs -> Match
+                       old-matches ;; map of id+attrs -> Match
                        what-fn ;; fn
                        when-fn ;; fn
                        then-fn ;; fn
@@ -123,6 +124,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
                     id-attr-nodes ;; map of id+attr -> set of alpha node paths
                     then-queue ;; vector of Execution
                     then-finally-queue ;; vector of Execution
+                    make-id+attr ;; function, default is `vector`
+                    make-id+attrs ;; function, default is `vector`
                     ])
 
 (defn- add-to-condition [condition field [kind value]]
@@ -626,7 +629,10 @@ This is no longer necessary, because it is accessible via `match` directly."}
                       (fn [session execution]
                         (let [node-id (:node-id execution)
                               id+attrs (:id+attrs execution)
-                              {:keys [matches then-fn old-matches]} (get beta-nodes node-id)]
+                              memory-node (get beta-nodes node-id)
+                              matches (:matches memory-node)
+                              then-fn  (:then-fn memory-node)
+                              old-matches (:old-matches memory-node)]
                           (or (when-let [{:keys [vars enabled]} (get matches id+attrs)]
                                 (when enabled
                                   (binding [*session* session
@@ -644,8 +650,9 @@ This is no longer necessary, because it is accessible via `match` directly."}
                       (fn [session execution]
                         (let [node-id (:node-id execution)
                               id+attrs (:id+attrs execution)
-                              {:keys [old-matches then-finally-fn]} (get beta-nodes node-id)
-                              vars (:vars (get old-matches id+attrs))]
+                              memory-node (get beta-nodes node-id)
+                              vars (-> memory-node :old-matches (get id+attrs) :vars)
+                              then-finally-fn (:then-finally-fn memory-node)]
                           (binding [*session* session
                                     *mutable-session* (volatile! session)]
                             (execute-fn #(then-finally-fn session (with-meta vars {::id+attrs id+attrs})) node-id)
