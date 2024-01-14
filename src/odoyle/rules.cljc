@@ -332,8 +332,9 @@ This is no longer necessary, because it is accessible via `match` directly."}
   #?(:clj (conj acc n)
      :cljs (do (.push ^js acc n) acc)))
 
-(defn- left-activate-memory-node [session node-id id+attrs vars {:keys [kind] :as token} new?]
-  (let [node-path [:beta-nodes node-id]
+(defn- left-activate-memory-node [session node-id id+attrs vars token new?]
+  (let [kind (:kind token)
+        node-path [:beta-nodes node-id]
         node (get-in session node-path)
         ;; if this insert/update fact is new
         ;; and the condition doesn't have {:then false}
@@ -412,17 +413,23 @@ This is no longer necessary, because it is accessible via `match` directly."}
       (left-activate-join-node session join-node-id id+attrs vars token)
       session)))
 
-(defn- right-activate-join-node [session node-id id+attr {:keys [fact] :as token}]
-  (let [{:keys [condition child-id id-key] :as node} (get-in session [:beta-nodes node-id])]
-    (if-let [parent-id (:parent-id node)]
+(defn- right-activate-join-node [session node-id id+attr token]
+  (let [fact (:fact token)
+        join-node (get-in session [:beta-nodes node-id])
+        condition (:condition join-node)
+        child-id (:child-id join-node)
+        id-key (:id-key join-node)
+        parent-id (:parent-id join-node)]
+    (if parent-id
       (reduce-kv
-       (fn [session id+attrs {existing-vars :vars}]
+       (fn [session id+attrs existing-match]
          ;; SHORTCUT: if we know the id, compare it with the token right away
-         (if (some->> id-key (get existing-vars) (not= (:id fact)))
+         (let [vars (:vars existing-match)]
+           (if (some->> id-key (get existing-match) (not= (:id fact)))
            session
-           (if-let [vars (get-vars-from-fact existing-vars condition fact)]
+             (if-let [vars (get-vars-from-fact vars condition fact)]
              (left-activate-memory-node session child-id (conj id+attrs id+attr) vars token true)
-             session)))
+               session))))
        session
        (get-in session [:beta-nodes parent-id :matches]))
       ;; root node
@@ -430,8 +437,11 @@ This is no longer necessary, because it is accessible via `match` directly."}
         (left-activate-memory-node session child-id ((:make-id+attrs session) id+attr) vars token true)
         session))))
 
-(defn- right-activate-alpha-node [session node-path {:keys [fact kind old-fact] :as token}]
-  (let [[id attr :as id+attr] (get-id-attr session fact)]
+(defn- right-activate-alpha-node [session node-path token]
+  (let [fact (:fact token)
+        kind (:kind token)
+        old-fact (:old-fact token)
+        [id attr :as id+attr] (get-id-attr session fact)]
     (as-> session $
       (case kind
         :insert
@@ -632,14 +642,14 @@ This is no longer necessary, because it is accessible via `match` directly."}
                               memory-node (get beta-nodes node-id)
                               matches (:matches memory-node)
                               then-fn  (:then-fn memory-node)
-                              old-matches (:old-matches memory-node)]
+                              old-match (-> memory-node :old-matches (get id+attrs) :vars)]
                           (or (when-let [{:keys [vars enabled]} (get matches id+attrs)]
                                 (when enabled
                                   (binding [*session* session
                                             *mutable-session* (volatile! session)
                                             *match* vars]
                                     (execute-fn #(then-fn session (with-meta vars
-                                                                    {::old-match (:vars (get old-matches id+attrs))
+                                                                    {::old-match old-match
                                                                      ::id+attrs id+attrs})) node-id)
                                     @*mutable-session*)))
                               session)))
