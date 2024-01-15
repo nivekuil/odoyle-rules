@@ -122,8 +122,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
                     rule-name->node-id ;; map of rule name -> the id of the associated MemoryNode
                     node-id->rule-name ;; map of the id of a MemoryNode -> the associated rule name
                     id-attr-nodes ;; map of id+attr -> set of alpha node paths
-                    then-queue ;; vector of Execution
-                    then-finally-queue ;; vector of Execution
+                    then-queue ;; set of Execution
+                    then-finally-queue ;; set of Execution
                     make-id+attr ;; function, default is `vector`
                     make-id+attrs ;; function, default is `vector`
                     ])
@@ -623,7 +623,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                             (f)
                             (vswap! *node-id->triggered-node-ids update node-id #(into (or % #{}) @*triggered-node-ids*))))
              ;; reset state
-             session (assoc session :then-queue [] :then-finally-queue [])
+             session (assoc session :then-queue #{} :then-finally-queue #{})
              untrigger-fn (fn [session execution]
                             (update-in session [:beta-nodes (:node-id execution)] assoc :trigger false))
              session (reduce untrigger-fn session then-queue)
@@ -751,7 +751,10 @@ This is no longer necessary, because it is accessible via `match` directly."}
                :rule-name qualified-keyword?))
 
 (defn remove-node-from-execute-queue [queue node-id]
-  (into [] (remove (fn [execution] (identical? (:node-id execution) node-id)))
+  (reduce (fn [s execution]
+            (if (= (:node-id execution) node-id)
+              (reduced (disj s execution)) s))
+   queue
         queue))
 
 (defn remove-rule
@@ -813,8 +816,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
     :rule-name->node-id {}
     :node-id->rule-name {}
     :id-attr-nodes {}
-     :then-queue []
-     :then-finally-queue []
+     :then-queue #{}
+     :then-finally-queue #{}
      :make-id+attr vector
      :make-id+attrs vector}
     opts)))
