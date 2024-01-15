@@ -917,13 +917,9 @@ This is no longer necessary, because it is accessible via `match` directly."}
    (let [rule-id (or (get-in session [:rule-name->node-id rule-name])
                      (throw (ex-info (str rule-name " not in session") {})))
          rule (get-in session [:beta-nodes rule-id])]
-     (reduce-kv
-      (fn [v _ {:keys [vars enabled]}]
-        (if enabled
-          (conj v vars)
-          v))
-      []
+     (->Eduction (comp (map val) (filter :enabled) (map :vars))
       (:matches rule)))))
+
 
 (s/fdef contains?
   :args (s/cat :session ::session, :id ::id, :attr ::attr))
