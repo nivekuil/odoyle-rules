@@ -74,8 +74,6 @@ This is no longer necessary, because it is accessible via `match` directly."}
 (defrecord Match [vars ;; map of binding keywords -> values from facts
                   enabled ;; boolean indicating if this match should be returned in queries
                   ])
-(defrecord Execution [node-id ;; MemoryNode id
-                      id+attrs])
 (defrecord AlphaNode [path ;; the get-in vector to reach this node from the root
                       test-field ;; :id, :attr, or :value
                       test-value ;; anything
@@ -89,7 +87,6 @@ This is no longer necessary, because it is accessible via `match` directly."}
                        leaf-node-id ;; id of the MemoryNode at the end (same as id if this is the leaf node)
                        condition ;; Condition associated with this node
                        matches ;; map of id+attrs -> Match
-                       old-matches ;; map of id+attrs -> Match
                        what-fn ;; fn
                        when-fn ;; fn
                        then-fn ;; fn
@@ -122,11 +119,27 @@ This is no longer necessary, because it is accessible via `match` directly."}
                     rule-name->node-id ;; map of rule name -> the id of the associated MemoryNode
                     node-id->rule-name ;; map of the id of a MemoryNode -> the associated rule name
                     id-attr-nodes ;; map of id+attr -> set of alpha node paths
-                    then-queue ;; set of Execution
-                    then-finally-queue ;; set of Execution
+                    then-queue ;; map of node-id -> id+attrs -> execution data
+                    then-finally-queue ;; map of node-id -> id+attrs -> execution data
                     make-id+attr ;; function, default is `vector`
                     make-id+attrs ;; function, default is `vector`
                     ])
+
+(defn execute-queue []
+  {})
+(defn remove-node-from-execute-queue [queue node-id]
+  #_(into [] (remove (fn [execution](= (:node-id execution) node-id)))
+          queue)
+  (dissoc queue node-id)
+  #_(reduce (fn [s execution]
+              (if (= (:node-id execution) node-id)
+                (reduced (disj s execution)) s))
+            queue
+            queue))
+(defn update-execute-queue [queue node-id id+attrs old-matches]
+  (update queue node-id assoc id+attrs old-matches))
+
+
 
 (defn- add-to-condition [condition field [kind value]]
   (case kind
@@ -373,7 +386,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                     (assoc-in session [:beta-nodes (:leaf-node-id node) :trigger] true))
                   session)
         node (get-in session node-path) ;; get node again since trigger may have updated
-        leaf-node? (= (:id node) (:leaf-node-id node))
+        leaf-node? (identical? (:id node) (:leaf-node-id node))
         ;; whether the matches in this node should
         ;; return in query results
         enabled? (boolean
@@ -389,12 +402,11 @@ This is no longer necessary, because it is accessible via `match` directly."}
                   (:insert :update)
                   (as-> session $
                     (if (and leaf-node? (:trigger node) (:then-fn node))
-                      (-> $
-                          (update :then-queue conj (->Execution node-id id+attrs))
-                          (update-in node-path assoc-in [:old-matches id+attrs]
-                                     (-> session
+                      (update $ :then-queue update-execute-queue
+                              node-id id+attrs (-> session
                                          (get-in node-path)
-                                         (get-in [:matches id+attrs]))))
+                                                   (get-in [:matches id+attrs])))
+                      
                       $)
                     (update-in $ node-path assoc-in [:matches id+attrs]
                                (->Match vars enabled?))
@@ -403,12 +415,10 @@ This is no longer necessary, because it is accessible via `match` directly."}
                   :retract
                   (as-> session $
                     (if (and leaf-node? (:then-finally-fn node))
-                      (-> $
-                          (update-in node-path assoc-in [:old-matches id+attrs]
-                                     (-> session
+                      (update $ :then-finally-queue update-execute-queue
+                              node-id id+attrs (-> session
                                          (get-in node-path)
                                          (get-in [:matches id+attrs])))
-                          (update :then-finally-queue conj (->Execution node-id id+attrs)))
                       $)
                     (update-in $ node-path update :matches dissoc id+attrs)
                     (update-in $ [:beta-nodes (:parent-id node) :old-id-attrs]
@@ -627,26 +637,24 @@ This is no longer necessary, because it is accessible via `match` directly."}
                             (f)
                             (vswap! *node-id->triggered-node-ids update node-id #(into (or % #{}) @*triggered-node-ids*))))
              ;; reset state
-             session (assoc session :then-queue #{} :then-finally-queue #{})
-             untrigger-fn (fn [session execution]
-                            (update-in session [:beta-nodes (:node-id execution)] assoc :trigger false))
-             session (reduce untrigger-fn session then-queue)
-             session (reduce untrigger-fn session then-finally-queue)
+             session (assoc session :then-queue (execute-queue) :then-finally-queue (execute-queue))
+             untrigger-fn (fn [session node-id _]
+                            (update-in session [:beta-nodes node-id] assoc :trigger false))
+             session (reduce-kv untrigger-fn session then-queue)
+             session (reduce-kv untrigger-fn session then-finally-queue)
              ;; keep a copy of the beta nodes before executing the :then functions.
              ;; if we pull the beta nodes from inside the reduce fn below,
              ;; it'll produce non-deterministic results because `matches`
              ;; could be modified by the reduce itself. see test: non-deterministic-behavior
              beta-nodes (:beta-nodes session)
-             
              ;; execute :then functions
-             session (reduce
-                      (fn [session execution]
-                        (let [node-id (:node-id execution)
-                              id+attrs (:id+attrs execution)
-                              memory-node (get beta-nodes node-id)
+             session (reduce-kv
+                      (fn [session node-id executions]
+                        (reduce-kv
+                         (fn [session id+attrs old-match]
+                           (let [memory-node (get beta-nodes node-id)
                               matches (:matches memory-node)
-                              then-fn  (:then-fn memory-node)
-                              old-match (-> memory-node :old-matches (get id+attrs) :vars)]
+                                 then-fn  (:then-fn memory-node)]
                           (or (when-let [{:keys [vars enabled]} (get matches id+attrs)]
                                 (when enabled
                                   (binding [*session* session
@@ -658,19 +666,23 @@ This is no longer necessary, because it is accessible via `match` directly."}
                                     @*mutable-session*)))
                               session)))
                       session
+                         executions))
+                      session
                       then-queue)
              ;; execute :then-finally functions
-             session (reduce
-                      (fn [session execution]
-                        (let [node-id (:node-id execution)
-                              id+attrs (:id+attrs execution)
+             session (reduce-kv
+                      (fn [session node-id executions]
+                        (reduce-kv
+                         (fn [session id+attrs old-match]
+                           (let [old-vars (:vars old-match)
                               memory-node (get beta-nodes node-id)
-                              vars (-> memory-node :old-matches (get id+attrs) :vars)
                               then-finally-fn (:then-finally-fn memory-node)]
                           (binding [*session* session
                                     *mutable-session* (volatile! session)]
-                            (execute-fn #(then-finally-fn session (with-meta vars {::id+attrs id+attrs})) node-id)
+                               (execute-fn #(then-finally-fn session (with-meta old-vars {::id+attrs id+attrs})) node-id)
                             @*mutable-session*)))
+                      session
+                         executions))
                       session
                       then-finally-queue)]
          ;; recur because there may be new blocks to execute
@@ -754,13 +766,6 @@ This is no longer necessary, because it is accessible via `match` directly."}
   :args (s/cat :session ::session
                :rule-name qualified-keyword?))
 
-(defn remove-node-from-execute-queue [queue node-id]
-  (reduce (fn [s execution]
-            (if (= (:node-id execution) node-id)
-              (reduced (disj s execution)) s))
-   queue
-        queue))
-
 (defn remove-rule
   "Removes a rule from the given session."
   [session rule-name]
@@ -820,8 +825,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
     :rule-name->node-id {}
     :node-id->rule-name {}
     :id-attr-nodes {}
-     :then-queue #{}
-     :then-finally-queue #{}
+     :then-queue (execute-queue)
+     :then-finally-queue (execute-queue)
      :make-id+attr vector
      :make-id+attrs vector}
     opts)))
