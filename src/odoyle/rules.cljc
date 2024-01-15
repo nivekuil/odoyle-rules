@@ -600,7 +600,6 @@ This is no longer necessary, because it is accessible via `match` directly."}
                          \newline "Try using {:then false} to prevent triggering rules in an infinite loop.")
                     {}))))
 
-(def ^:private ^:dynamic *mutable-session* nil)
 (def ^:private ^:dynamic *recur-countdown* nil)
 (def ^:private ^:dynamic *executed-nodes* nil)
 
@@ -646,45 +645,39 @@ This is no longer necessary, because it is accessible via `match` directly."}
              ;; if we pull the beta nodes from inside the reduce fn below,
              ;; it'll produce non-deterministic results because `matches`
              ;; could be modified by the reduce itself. see test: non-deterministic-behavior
-             beta-nodes (:beta-nodes session)
+             beta-nodes (:beta-nodes session)]
+         
              ;; execute :then functions
-             session (reduce-kv
+         (reduce-kv
                       (fn [session node-id executions]
                         (reduce-kv
                          (fn [session id+attrs old-match]
                            (let [memory-node (get beta-nodes node-id)
                               matches (:matches memory-node)
                                  then-fn  (:then-fn memory-node)]
-                          (or (when-let [{:keys [vars enabled]} (get matches id+attrs)]
-                                (when enabled
-                                  (binding [*session* session
-                                            *mutable-session* (volatile! session)
-                                            *match* vars]
-                                    (execute-fn #(then-fn session (with-meta vars
+                 (when-let [{:keys [vars enabled]} (get matches id+attrs)]
+                   (when enabled (execute-fn #(then-fn session (with-meta vars
                                                                     {::old-match old-match
-                                                                     ::id+attrs id+attrs})) node-id)
-                                    @*mutable-session*)))
-                              session)))
+                                                                  ::id+attrs id+attrs})) node-id)))))
                       session
                          executions))
                       session
                       then-queue)
+         
              ;; execute :then-finally functions
-             session (reduce-kv
+         (reduce-kv
                       (fn [session node-id executions]
                         (reduce-kv
                          (fn [session id+attrs old-match]
-                           (let [old-vars (:vars old-match)
-                              memory-node (get beta-nodes node-id)
+               (let [memory-node (get beta-nodes node-id)
+                     old-vars (:vars old-match)
                               then-finally-fn (:then-finally-fn memory-node)]
-                          (binding [*session* session
-                                    *mutable-session* (volatile! session)]
-                               (execute-fn #(then-finally-fn session (with-meta old-vars {::id+attrs id+attrs})) node-id)
-                            @*mutable-session*)))
+                 (execute-fn #(then-finally-fn session (with-meta old-vars {::id+attrs id+attrs})) node-id)))
                       session
                          executions))
                       session
-                      then-finally-queue)]
+          then-finally-queue)
+         
          ;; recur because there may be new blocks to execute
          (if-let [limit (get opts :recursion-limit 16)]
            (if (= 0 *recur-countdown*)
@@ -885,30 +878,6 @@ This is no longer necessary, because it is accessible via `match` directly."}
    (->> (get-alpha-nodes-for-fact session (:alpha-node session) id attr value true)
         (upsert-fact session id attr value))))
 
-(s/def ::insert!-args
-  (s/or
-   :batch (s/cat :id ::id
-                 :attr->value (s/map-of ::attr ::value))
-   :single (s/cat :id ::id
-                  :attr ::attr
-                  :value ::value)))
-
-(s/fdef insert!
-  :args ::insert!-args)
-
-(defn insert!
-  "Equivalent to:
-  
-  (o/reset! (o/insert o/*session* id attr value))"
-  ([id attr->value]
-   (run! (fn [[attr value]]
-           (insert! id attr value))
-         attr->value))
-  ([id attr value]
-   (if *mutable-session*
-     (vswap! *mutable-session* insert id attr value)
-     (throw (ex-info "This function must be called in a :then or :then-finally block" {})))))
-
 (s/fdef retract
   :args (s/cat :session ::session, :id ::id, :attr ::attr))
 
@@ -926,17 +895,6 @@ This is no longer necessary, because it is accessible via `match` directly."}
         node-paths)
       session)))
 
-(s/fdef retract!
-  :args (s/cat :id ::id, :attr ::attr))
-
-(defn retract!
-  "Equivalent to:
-  
-  (o/reset! (o/retract o/*session* id attr))"
-  [id attr]
-  (if *mutable-session*
-    (vswap! *mutable-session* retract id attr)
-    (throw (ex-info "This function must be called in a :then or :then-finally block" {}))))
 
 (s/fdef query-all
   :args (s/cat :session ::session, :rule-name (s/? qualified-keyword?)))
@@ -961,18 +919,6 @@ This is no longer necessary, because it is accessible via `match` directly."}
           v))
       []
       (:matches rule)))))
-
-(s/fdef reset!
-  :args (s/cat :new-session ::session))
-
-(defn reset!
-  "Mutates the session from a :then or :then-finally block."
-  [new-session]
-  (if *mutable-session*
-    (if (= *session* @*mutable-session*)
-      (vreset! *mutable-session* new-session)
-      (throw (ex-info "You may only call `reset!` once in a :then or :then-finally block" {})))
-    (throw (ex-info "You may only call `reset!` in a :then or :then-finally block" {}))))
 
 (s/fdef contains?
   :args (s/cat :session ::session, :id ::id, :attr ::attr))
