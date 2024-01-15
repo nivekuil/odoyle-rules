@@ -1005,7 +1005,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
     (and (:then-finally-fn rule) then-finally-fn)
     (update :then-finally-fn
             (fn wrap-then-finally [f]
-              (fn [session]
-                (then-finally-fn f session))))))
+              (fn [session old-match]
+                (then-finally-fn f session old-match))))))
 
 
