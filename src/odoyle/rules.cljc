@@ -385,28 +385,32 @@ This is no longer necessary, because it is accessible via `match` directly."}
         ;; the id+attr of this token is the last one in the vector
         id+attr (peek id+attrs)
         ;; update session
-        session (update-in session node-path assoc-in [:old-matches id+attrs]
-                           (-> session
-                               (get-in node-path)
-                               (get-in [:matches id+attrs])))
         session (case kind
                   (:insert :update)
                   (as-> session $
+                    (if (and leaf-node? (:trigger node) (:then-fn node))
+                      (-> $
+                          (update :then-queue conj (->Execution node-id id+attrs))
+                          (update-in node-path assoc-in [:old-matches id+attrs]
+                                     (-> session
+                                         (get-in node-path)
+                                         (get-in [:matches id+attrs]))))
+                      $)
                     (update-in $ node-path assoc-in [:matches id+attrs]
                                (->Match vars enabled?))
-                    (if (and leaf-node? (:trigger node))
-                      (cond-> $
-                        (:then-fn node)
-                        (update :then-queue conj (->Execution node-id id+attrs)))
-                      $)
                     (update-in $ [:beta-nodes (:parent-id node) :old-id-attrs]
                                conj id+attr))
                   :retract
                   (as-> session $
-                    (update-in $ node-path update :matches dissoc id+attrs)
                     (if (and leaf-node? (:then-finally-fn node))
-                      (update $ :then-finally-queue conj (->Execution node-id id+attrs))
+                      (-> $
+                          (update-in node-path assoc-in [:old-matches id+attrs]
+                                     (-> session
+                                         (get-in node-path)
+                                         (get-in [:matches id+attrs])))
+                          (update :then-finally-queue conj (->Execution node-id id+attrs)))
                       $)
+                    (update-in $ node-path update :matches dissoc id+attrs)
                     (update-in $ [:beta-nodes (:parent-id node) :old-id-attrs]
                                disj id+attr)))]
     (if-let [join-node-id (:child-id node)]
