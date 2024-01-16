@@ -307,14 +307,15 @@ This is no longer necessary, because it is accessible via `match` directly."}
 (defn- left-activate-join-node
   ([session node-id id+attrs vars token]
    (let [join-node (get-in session [:beta-nodes node-id])
-         alpha-node (get-in session (:alpha-node-path join-node))]
+         alpha-node (get-in session (:alpha-node-path join-node))
+         facts (:facts alpha-node)]
      ;; SHORTCUT: if we know the id, only loop over alpha facts with that id
      (if-let [id (some->> (:id-key join-node) (get vars))]
        (reduce-kv
         (fn [session _ alpha-fact]
           (left-activate-join-node session join-node id+attrs vars token alpha-fact))
         session
-        (get-in alpha-node [:facts id]))
+        (get facts id))
        (reduce-kv
         (fn [session _ attr->fact]
           (reduce-kv
@@ -323,7 +324,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
            session
            attr->fact))
         session
-        (:facts alpha-node)))))
+        facts))))
   ([session join-node id+attrs vars token alpha-fact]
    (if-let [new-vars (get-vars-from-fact vars (-> join-node :condition :bindings) alpha-fact)]
      (let [id+attr (get-id-attr session alpha-fact)
@@ -439,7 +440,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
        (fn [session id+attrs existing-match]
          ;; SHORTCUT: if we know the id, compare it with the token right away
          (let [vars (:vars existing-match)]
-           (if (some->> id-key (get vars) (not= (:id fact)))
+           (if (and id-key (some-> (id-key vars) (not= (:id fact))))
            session
              (if-let [vars (get-vars-from-fact vars bindings fact)]
              (left-activate-memory-node session child-id (conj id+attrs id+attr) vars token true)
