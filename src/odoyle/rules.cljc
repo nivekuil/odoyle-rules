@@ -445,7 +445,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
        (fn [session id+attrs existing-match]
          ;; SHORTCUT: if we know the id, compare it with the token right away
          (let [vars (:vars existing-match)]
-           (if (some->> id-key (get existing-match) (not= (:id fact)))
+           (if (some->> id-key (get vars) (not= (:id fact)))
            session
              (if-let [vars (get-vars-from-fact vars bindings fact)]
              (left-activate-memory-node session child-id (conj id+attrs id+attr) vars token true)
