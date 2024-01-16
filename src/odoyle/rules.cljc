@@ -282,7 +282,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                                   {:all #{} :joins #{}})
                               (->> condition :bindings (map :key))))))))
 
-(defn- get-vars-from-fact [vars condition fact]
+(defn- get-vars-from-fact [vars bindings fact]
   (reduce
     (fn [m cond-var]
       (let [var-key (:key cond-var)]
@@ -303,7 +303,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
             (reduced nil)
             (assoc m var-key (:value fact))))))
     vars
-    (:bindings condition)))
+   bindings))
 
 (defn- get-id-attr [session m]
   ((:make-id+attr session) (:id m) (:attr m)))
@@ -331,7 +331,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
         session
         (:facts alpha-node)))))
   ([session join-node id+attrs vars token alpha-fact]
-   (if-let [new-vars (get-vars-from-fact vars (:condition join-node) alpha-fact)]
+   (if-let [new-vars (get-vars-from-fact vars (-> join-node :condition :bindings) alpha-fact)]
      (let [id+attr (get-id-attr session alpha-fact)
            id+attrs (conj id+attrs id+attr)
            new-token (->Token alpha-fact (:kind token) nil)
@@ -436,7 +436,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
 (defn- right-activate-join-node [session node-id id+attr token]
   (let [fact (:fact token)
         join-node (get-in session [:beta-nodes node-id])
-        condition (:condition join-node)
+        bindings (-> join-node :condition :bindings)
         child-id (:child-id join-node)
         id-key (:id-key join-node)
         parent-id (:parent-id join-node)]
@@ -447,13 +447,13 @@ This is no longer necessary, because it is accessible via `match` directly."}
          (let [vars (:vars existing-match)]
            (if (some->> id-key (get existing-match) (not= (:id fact)))
            session
-             (if-let [vars (get-vars-from-fact vars condition fact)]
+             (if-let [vars (get-vars-from-fact vars bindings fact)]
              (left-activate-memory-node session child-id (conj id+attrs id+attr) vars token true)
                session))))
        session
        (get-in session [:beta-nodes parent-id :matches]))
       ;; root node
-      (if-let [vars (get-vars-from-fact {} condition fact)]
+      (if-let [vars (get-vars-from-fact {} bindings fact)]
         (left-activate-memory-node session child-id ((:make-id+attrs session) id+attr) vars token true)
         session))))
 
