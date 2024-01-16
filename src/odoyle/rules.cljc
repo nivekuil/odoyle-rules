@@ -354,7 +354,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
         ;; and the condition doesn't have {:then false}
         ;; let the leaf node trigger
         session (if (and new?
-                         (#{:insert :update} kind)
+                         (case kind
+                           (:insert :update)
                          (if-let [what-fn (:what-fn node)]
                            ;; if a what fn was supplied via `wrap-rule`,
                            ;; run it so this fact insertion can be intercepted
@@ -380,7 +381,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
                                :func (if-let [old-fact (:old-fact token)]
                                        (then (-> token :fact :value) (:value old-fact))
                                        true))
-                             true)))
+                               true))
+                           false))
                   (do
                     (when *triggered-node-ids* ;; this is only used to improve errors. see `fire-rules`
                       (vswap! *triggered-node-ids* conj (:leaf-node-id node)))
