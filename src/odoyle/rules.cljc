@@ -282,26 +282,20 @@ This is no longer necessary, because it is accessible via `match` directly."}
                                   {:all #{} :joins #{}})
                               (->> condition :bindings (map :key))))))))
 
+(def missing ::missing)
 (defn- get-vars-from-fact [vars bindings fact]
   (reduce
     (fn [m cond-var]
-      (let [var-key (:key cond-var)]
-        (case (:field cond-var)
-          :id
-          (if (and (clojure.core/contains? m var-key)
-                   (not= (get m var-key) (:id fact)))
-            (reduced nil)
-            (assoc m var-key (:id fact)))
-          :attr
-          (if (and (clojure.core/contains? m var-key)
-                   (not= (get m var-key) (:attr fact)))
-            (reduced nil)
-            (assoc m var-key (:attr fact)))
-          :value
-          (if (and (clojure.core/contains? m var-key)
-                   (not= (get m var-key) (:value fact)))
-            (reduced nil)
-            (assoc m var-key (:value fact))))))
+     (let [var-key (:key cond-var)
+           x (var-key m missing)
+           missing? (identical? missing x)
+           fact-val (case (:field cond-var)
+                      :id (:id fact)
+                      :attr (:attr fact)
+                      :value (:value fact))]
+       (if (or missing? (= x fact-val))
+         (assoc m var-key fact-val)
+         (reduced nil))))
     vars
    bindings))
 
