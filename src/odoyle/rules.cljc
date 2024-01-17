@@ -93,6 +93,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                        then-fn ;; fn
                        then-finally-fn ;; fn
                        trigger ;; boolean indicating that the :then block can be triggered
+                       indexed ;; boolean indicating that its matches should be indexed by vars
                        ])
 (defrecord JoinNode [id
                      parent-id ;; MemoryNode id
@@ -235,13 +236,34 @@ This is no longer necessary, because it is accessible via `match` directly."}
         join-node-id (vswap! *last-id inc)
         mem-node-id (vswap! *last-id inc)
         parent-mem-node-id (-> acc :mem-node-ids peek)
+
+        acc (-> acc
+                (update :mem-node-ids (fn [node-ids]
+                                        (if node-ids
+                                          (conj node-ids mem-node-id)
+                                          [mem-node-id])))
+                (update :join-node-ids (fn [node-ids]
+                                         (if node-ids
+                                           (conj node-ids join-node-id)
+                                           [join-node-id])))
+                (update :bindings (fn [bindings]
+                                    (reduce
+                                     (fn [bindings k]
+                                       (if (clojure.core/contains? (:all bindings) k)
+                                         (update bindings :joins conj k)
+                                         (update bindings :all conj k)))
+                                     (or bindings
+                                         {:all #{} :joins #{}})
+                                     (->> condition :bindings (map :key))))))
+        
         mem-node (map->MemoryNode {:id mem-node-id
                                    :parent-id join-node-id
                                    :child-id nil
                                    :leaf-node-id nil
                                    :condition condition
                                    :matches {}
-                                   :trigger false})
+                                   :trigger false
+                                   :indexed (-> acc :bindings :joins seq boolean)})
         join-node (map->JoinNode {:id join-node-id
                                   :parent-id parent-mem-node-id
                                   :child-id mem-node-id
@@ -262,24 +284,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
         (cond-> parent-mem-node-id
                 (assoc-in [:beta-nodes parent-mem-node-id :child-id] join-node-id))
          (assoc :last-id @*last-id))
-     (-> acc
-        (update :mem-node-ids (fn [node-ids]
-                                (if node-ids
-                                  (conj node-ids mem-node-id)
-                                  [mem-node-id])))
-        (update :join-node-ids (fn [node-ids]
-                                 (if node-ids
-                                   (conj node-ids join-node-id)
-                                   [join-node-id])))
-        (update :bindings (fn [bindings]
-                            (reduce
-                              (fn [bindings k]
-                                (if (clojure.core/contains? (:all bindings) k)
-                                  (update bindings :joins conj k)
-                                  (update bindings :all conj k)))
-                              (or bindings
-                                  {:all #{} :joins #{}})
-                              (->> condition :bindings (map :key))))))]))
+     acc]))
 
 (def missing ::missing)
 (defn- get-vars-from-fact
@@ -395,12 +400,14 @@ This is no longer necessary, because it is accessible via `match` directly."}
                       (binding [*session* session
                                 *match* vars]
                         ((:when-fn node) session vars))))
+        indexed? (:indexed node)
         ;; the id+attr of this token is the last one in the vector
         id+attr (peek id+attrs)
         ;; update session
         session (case kind
                   (:insert :update)
                   (let [match (->Match vars enabled?)]
+                    #_(prn "NODE IS INDEXED?"indexed? vars)
                   (as-> session $
                     (if (and leaf-node? (:trigger node) (:then-fn node))
                       (-> $
@@ -412,12 +419,14 @@ This is no longer necessary, because it is accessible via `match` directly."}
                       $)
                     (update-in $ node-path assoc-in [:matches id+attrs]
                                  match)
+                      (if indexed?
                       (reduce-kv
                        (fn [$ k v]
                          (update-in $ node-path assoc-in [:indexed-matches k v id+attrs]
                                     match))
                        $
                        vars)
+                        $)
                     (update-in $ [:beta-nodes (:parent-id node) :old-id-attrs]
                                  conj id+attr)))
                   :retract
@@ -432,12 +441,14 @@ This is no longer necessary, because it is accessible via `match` directly."}
                       $)
                     (update-in $ node-path update :matches dissoc id+attrs)
                     
+                    (if indexed?
                     (reduce-kv
                      (fn [$ k v]
                        (update-in $ node-path update-in [:indexed-matches k v]
                                   dissoc  id+attrs))
                      $
                      vars)
+                      $)
                     
                     (update-in $ [:beta-nodes (:parent-id node) :old-id-attrs]
                                disj id+attr)))]
@@ -448,7 +459,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
 (defn- right-activate-join-node [session node-id id+attr token]
   (let [join-node (get-in session [:beta-nodes node-id])
         parent-id (:parent-id join-node)
-        all-matches (get-in session [:beta-nodes parent-id :matches])
+        parent (get-in session [:beta-nodes parent-id])
+        all-matches (:matches parent)
         bindings (-> join-node :condition :bindings)
         fact (:fact token)
         id-key (:id-key join-node)
@@ -457,17 +469,20 @@ This is no longer necessary, because it is accessible via `match` directly."}
       (if (zero? (count all-matches))
         session
         (if-let [indexed-matches
+                 (and (:indexed parent)
                  (not-empty
                   (reduce-kv
                    (fn [acc k v] (merge acc (get-in session [:beta-nodes parent-id :indexed-matches k v])))
                    {}
-                   (get-vars-from-fact {} bindings fact)))]
+                        (get-vars-from-fact {} bindings fact))))]
+          (do
+            #_(prn "INDEX SAVED"(count indexed-matches) "/"(count all-matches))
           (reduce-kv
            (fn [session id+attrs existing-match]
              (if-let [vars (get-vars-from-fact (:vars existing-match) bindings fact)]
                (left-activate-memory-node session child-id (conj id+attrs id+attr) vars token true)
                session))
-           session indexed-matches)
+             session indexed-matches))
           ;; missed index
       (reduce-kv
        (fn [session id+attrs existing-match]
