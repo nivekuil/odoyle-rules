@@ -227,14 +227,14 @@ This is no longer necessary, because it is accessible via `match` directly."}
         (recur parent-id))
       -1)))
 
-(defn- add-condition [session condition]
+(defn- add-condition [[session acc] condition]
   (let [*alpha-node-path (volatile! [:alpha-node])
         session (update session :alpha-node add-alpha-node (:nodes condition) *alpha-node-path)
         alpha-node-path @*alpha-node-path
         *last-id (volatile! (:last-id session))
         join-node-id (vswap! *last-id inc)
         mem-node-id (vswap! *last-id inc)
-        parent-mem-node-id (-> session :mem-node-ids peek)
+        parent-mem-node-id (-> acc :mem-node-ids peek)
         mem-node (map->MemoryNode {:id mem-node-id
                                    :parent-id join-node-id
                                    :child-id nil
@@ -257,13 +257,12 @@ This is no longer necessary, because it is accessible via `match` directly."}
                             join-node-id)
         ;; successors must be sorted by ancestry (descendents first) to avoid duplicate rule firings
         successor-ids (vec (sort (partial is-ancestor session) successor-ids))]
-    (-> session
+    [(-> session
         (update-in alpha-node-path assoc :successors successor-ids)
         (cond-> parent-mem-node-id
                 (assoc-in [:beta-nodes parent-mem-node-id :child-id] join-node-id))
-        (assoc :last-id @*last-id)
-        ;; these are only being added temporarily
-        ;; they will be removed later
+         (assoc :last-id @*last-id))
+     (-> acc
         (update :mem-node-ids (fn [node-ids]
                                 (if node-ids
                                   (conj node-ids mem-node-id)
@@ -280,7 +279,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                                   (update bindings :all conj k)))
                               (or bindings
                                   {:all #{} :joins #{}})
-                              (->> condition :bindings (map :key))))))))
+                              (->> condition :bindings (map :key))))))]))
 
 (def missing ::missing)
 (defn- get-vars-from-fact
@@ -713,10 +712,11 @@ This is no longer necessary, because it is accessible via `match` directly."}
   (when (get-in session [:rule-name->node-id (:name rule)])
     (throw (ex-info (str (:name rule) " already exists in session") {})))
   (let [conditions (:conditions rule)
-        session (reduce add-condition session conditions)
-        leaf-node-id (-> session :mem-node-ids peek)
+        [session {:keys [mem-node-ids join-node-ids bindings]}]
+        (reduce add-condition [session {}] conditions)
+        
+        leaf-node-id (peek mem-node-ids)
         ;; the bindings (symbols) from the :what block
-        bindings (:bindings session)
         ;; update all memory nodes with
         ;; the id of their leaf node
         session (reduce (fn [session mem-node-id]
@@ -724,7 +724,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                                      (fn [mem-node]
                                        (assoc mem-node :leaf-node-id leaf-node-id, :what-fn (:what-fn rule)))))
                         session
-                        (:mem-node-ids session))
+                        mem-node-ids)
         ;; update all join nodes with:
         ;; 1. the name of the id binding, if it exists
         ;; 2. whether to disable fast updates
@@ -757,15 +757,13 @@ This is no longer necessary, because it is accessible via `match` directly."}
                                                 ;; disable fast updates for facts whose value is part of a join
                                                 :disable-fast-updates disable-fast-updates)))))
                         session
-                        (:join-node-ids session))]
+                        join-node-ids)]
     (-> session
         (assoc-in [:beta-nodes leaf-node-id :when-fn] (:when-fn rule))
         (assoc-in [:beta-nodes leaf-node-id :then-fn] (:then-fn rule))
         (assoc-in [:beta-nodes leaf-node-id :then-finally-fn] (:then-finally-fn rule))
         (assoc-in [:rule-name->node-id (:name rule)] leaf-node-id)
-        (assoc-in [:node-id->rule-name leaf-node-id] (:name rule))
-        ;; assoc'ed by add-condition
-        (dissoc :mem-node-ids :join-node-ids :bindings))))
+        (assoc-in [:node-id->rule-name leaf-node-id] (:name rule)))))
 
 (s/fdef remove-rule
   :args (s/cat :session ::session
