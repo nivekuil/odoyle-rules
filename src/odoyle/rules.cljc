@@ -476,24 +476,33 @@ This is no longer necessary, because it is accessible via `match` directly."}
                    {}
                         (get-vars-from-fact {} bindings fact))))]
           (do
-            #_(prn "INDEX SAVED"(count indexed-matches) "/"(count all-matches))
+            #_(prn "INDEX SAVED" (map :key bindings) (count indexed-matches) "/"(count all-matches))
           (reduce-kv
            (fn [session id+attrs existing-match]
              (if-let [vars (get-vars-from-fact (:vars existing-match) bindings fact)]
                (left-activate-memory-node session child-id (conj id+attrs id+attr) vars token true)
                session))
              session indexed-matches))
-          ;; missed index
+          
+          (if (and id-key (some-> (get-in session [:beta-nodes parent-id :indexed-matches id-key])
+                                  (not= (:id fact))))
+            
+            session
+            (do
+              (when (> (count(:indexed-matches parent)) 50)
+                (prn "INDEX MISSED"
+                     (:kind token)
+                     (map :key bindings)
+                     fact
+                     (count all-matches)
+                     (keys (:indexed-matches parent))))
+              ;; missed index TODO is this always only 1 match?
       (reduce-kv
        (fn [session id+attrs existing-match]
-         ;; SHORTCUT: if we know the id, compare it with the token right away
-         (let [vars (:vars existing-match)]
-           (if (and id-key (some-> (id-key vars) (not= (:id fact))))
-           session
-             (if-let [vars (get-vars-from-fact vars bindings fact)]
+                 (if-let [vars (get-vars-from-fact (:vars existing-match) bindings fact)]
              (left-activate-memory-node session child-id (conj id+attrs id+attr) vars token true)
-               session))))
-           session all-matches)))
+                   session))
+               session all-matches)))))
       ;; root node
       (if-let [vars (get-vars-from-fact {} bindings fact)]
         (left-activate-memory-node session child-id ((:make-id+attrs session) id+attr) vars token true)
