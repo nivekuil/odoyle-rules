@@ -93,7 +93,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                        then-fn ;; fn
                        then-finally-fn ;; fn
                        trigger ;; boolean indicating that the :then block can be triggered
-                       indexed ;; boolean indicating that its matches should be indexed by vars
+                       indexed-matches ;; map of binding key -> binding value -> id+attrs -> Match
                        ])
 (defrecord JoinNode [id
                      parent-id ;; MemoryNode id
@@ -263,7 +263,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                                    :condition condition
                                    :matches {}
                                    :trigger false
-                                   :indexed (-> acc :bindings :joins seq boolean)})
+                                   :indexed-matches (when (-> acc :bindings :joins seq) {})})
         join-node (map->JoinNode {:id join-node-id
                                   :parent-id parent-mem-node-id
                                   :child-id mem-node-id
@@ -400,7 +400,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                       (binding [*session* session
                                 *match* vars]
                         ((:when-fn node) session vars))))
-        indexed? (:indexed node)
+        indexed? (:indexed-matches node)
         ;; the id+attr of this token is the last one in the vector
         id+attr (peek id+attrs)
         ;; update session
@@ -469,7 +469,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
       (if (zero? (count all-matches))
         session
         (if-let [indexed-matches
-                 (and (:indexed parent)
+                 (and (:indexed-matches parent)
                  (not-empty
                   (reduce-kv
                    (fn [acc k v] (merge acc (get-in session [:beta-nodes parent-id :indexed-matches k v])))
