@@ -1,7 +1,8 @@
 (ns odoyle.rules
   (:require [clojure.spec.alpha :as s]
             [expound.alpha :as expound]
-            [clojure.string :as str])
+            [clojure.string :as str]
+            [odoyle.types :as types])
   #?(:cljs
      (:require-macros [odoyle.rules :refer [ruleset]]))
   (:refer-clojure :exclude [reset! contains?]))
@@ -861,8 +862,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
     :id-attr-nodes {}
      :then-queue (execute-queue)
      :then-finally-queue (execute-queue)
-     :make-id+attr vector
-     :make-id+attrs vector}
+     :make-id+attr types/make-id+attr
+     :make-id+attrs types/make-id+attrs}
     opts)))
 
 (s/def ::session #(instance? Session %))
