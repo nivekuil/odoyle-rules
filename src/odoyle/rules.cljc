@@ -51,16 +51,6 @@
       (throw (ex-info (expound/expound-str spec content) {}))
       res)))
 
-(def ^{:dynamic true
-       :doc "Provides the current value of the session from inside a :then or :then-finally block.
-This is no longer necessary, because it is accessible via `session` directly."}
-  *session* nil)
-
-(def ^{:dynamic true
-       :doc "Provides a map of all the matched values from inside a :then block.
-This is no longer necessary, because it is accessible via `match` directly."}
-  *match* nil)
-
 ;; private
 
 (defrecord Fact [id attr value])
@@ -88,7 +78,6 @@ This is no longer necessary, because it is accessible via `match` directly."}
                        leaf-node-id ;; id of the MemoryNode at the end (same as id if this is the leaf node)
                        condition ;; Condition associated with this node
                        matches ;; map of id+attrs -> Match
-                       old-matches ;; map of id+attrs -> Match
                        what-fn ;; fn
                        when-fn ;; fn
                        then-fn ;; fn
@@ -383,9 +372,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
         enabled? (boolean
                   (or (not leaf-node?)
                       (nil? (:when-fn node))
-                      (binding [*session* session
-                                *match* vars]
-                        ((:when-fn node) session vars))))
+                      ((:when-fn node) session vars)))
         indexed? (:indexed-matches node)
         ;; the id+attr of this token is the last one in the vector
         id+attr (peek id+attrs)
@@ -418,10 +405,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
                   (as-> session $
                     (if (and leaf-node? (:then-finally-fn node))
                       (-> $
-                          (update-in node-path update :old-matches  dissoc id+attrs)
                           (update :then-finally-queue update-execute-queue node-id id+attrs
-                                  (-> (get-in session node-path)
-                                      (get-in [:matches id+attrs]))))
+                                  (get-in session [:beta-nodes node-id :matches id+attrs])))
                       $)
                     (update-in $ node-path
                                (fn [node]
@@ -440,7 +425,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
       session)))
 
 (defn- matches->memory-node
-  "For each match stored in the join node, maybe create a child memory node"
+  "For each match stored in the join node, maybe activate the child memory node"
   [session matches memory-node-id id+attr bindings fact token]
   (reduce-kv
    (fn [session id+attrs existing-match]
@@ -667,9 +652,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
          then-queue (:then-queue session)
          then-finally-queue (:then-finally-queue session)]
 
-     (if (and (or (seq then-queue) (seq then-finally-queue))
-              ;; don't fire while inside a rule
-              (nil? *session*))
+     (if (or (seq then-queue) (seq then-finally-queue))
        (let [;; make an fn that will save which rules are triggered by the rules we're about to fire.
              ;; this will be useful for making a nice error message if an infinite loop happens.
              *node-id->triggered-node-ids (volatile! {})
@@ -696,10 +679,10 @@ This is no longer necessary, because it is accessible via `match` directly."}
              (fn [session id+attrs old-match]
                (let [memory-node (get beta-nodes node-id)
                      matches (:matches memory-node)
-                     match (matches id+attrs)
                      then-fn  (:then-fn memory-node)]
-                 (when-let [{:keys [vars enabled]} match]
-                   (when enabled (execute-fn #(then-fn session (with-meta vars
+                 (when-let [match (matches id+attrs)]
+                   (when (:enabled match)
+                     (execute-fn #(then-fn session (with-meta (:vars match)
                                                                  {::old-match (:vars old-match)
                                                                   ::id+attrs id+attrs})) node-id)))))
              session
@@ -713,9 +696,9 @@ This is no longer necessary, because it is accessible via `match` directly."}
             (reduce-kv
              (fn [session id+attrs old-match]
                (let [memory-node (get beta-nodes node-id)
-                     old-vars (-> old-match :vars)
                      then-finally-fn (:then-finally-fn memory-node)]
-                 (execute-fn #(then-finally-fn session (with-meta old-vars {::id+attrs id+attrs})) node-id)))
+                 (execute-fn #(then-finally-fn session (with-meta (:vars old-match)
+                                                         {::id+attrs id+attrs})) node-id)))
              session
              executions))
           session
