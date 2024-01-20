@@ -411,11 +411,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
                     (as-> session $
                       (if (and leaf-node? (:trigger node) (:then-fn node))
                         (-> $
-                            (update-in node-path assoc-in [:old-matches id+attrs]
-                                       (-> session
-                                           (get-in node-path)
-                                           (get-in [:matches id+attrs])))
-                            (update :then-queue update-execute-queue node-id id+attrs nil))
+                            (update :then-queue update-execute-queue node-id id+attrs
+                                    (-> (get-in session node-path) (get-in [:matches id+attrs]))))
                         $)
                       
                       (update-in $ node-path assoc-in [:matches id+attrs] match)
@@ -434,11 +431,10 @@ This is no longer necessary, because it is accessible via `match` directly."}
                   (as-> session $
                     (if (and leaf-node? (:then-finally-fn node))
                       (-> $
-                          (update-in node-path assoc-in [:old-matches id+attrs]
-                                     (-> session
-                                         (get-in node-path)
-                                         (get-in [:matches id+attrs])))
-                          (update :then-finally-queue update-execute-queue node-id id+attrs nil))
+                          (update-in node-path update :old-matches  dissoc id+attrs)
+                          (update :then-finally-queue update-execute-queue node-id id+attrs
+                                  (-> (get-in session node-path)
+                                      (get-in [:matches id+attrs]))))
                       $)
                     (update-in $ node-path update :matches dissoc id+attrs)
                     
@@ -715,12 +711,12 @@ This is no longer necessary, because it is accessible via `match` directly."}
          (reduce-kv
           (fn [session node-id executions]
             (reduce-kv
-             (fn [session id+attrs _]
+             (fn [session id+attrs old-match]
                (let [memory-node (get beta-nodes node-id)
-                     old-match (-> memory-node :old-matches (get id+attrs))
                      matches (:matches memory-node)
+                     match (matches id+attrs)
                      then-fn  (:then-fn memory-node)]
-                 (when-let [{:keys [vars enabled]} (get matches id+attrs)]
+                 (when-let [{:keys [vars enabled]} match]
                    (when enabled (execute-fn #(then-fn session (with-meta vars
                                                                  {::old-match (:vars old-match)
                                                                   ::id+attrs id+attrs})) node-id)))))
@@ -733,9 +729,9 @@ This is no longer necessary, because it is accessible via `match` directly."}
          (reduce-kv
           (fn [session node-id executions]
             (reduce-kv
-             (fn [session id+attrs _]
+             (fn [session id+attrs old-match]
                (let [memory-node (get beta-nodes node-id)
-                     old-vars (-> memory-node :old-matches (get id+attrs) :vars)
+                     old-vars (-> old-match :vars)
                      then-finally-fn (:then-finally-fn memory-node)]
                  (execute-fn #(then-finally-fn session (with-meta old-vars {::id+attrs id+attrs})) node-id)))
              session
