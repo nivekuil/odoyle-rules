@@ -334,17 +334,16 @@ This is no longer necessary, because it is accessible via `match` directly."}
      (if-let [id (some->> (:id-key join-node) (get vars))]
        (reduce-kv
         (fn [session _ alpha-fact]
-          (reduced (left-activate-join-node session join-node id+attrs vars token alpha-fact)))
+          (left-activate-join-node session join-node id+attrs vars token alpha-fact))
         session
         (get facts id))
        (reduce-kv
         (fn [session _ attr->fact]
-          (reduced
            (reduce-kv
             (fn [session _ alpha-fact]
-              (reduced (left-activate-join-node session join-node id+attrs vars token alpha-fact)))
+             (left-activate-join-node session join-node id+attrs vars token alpha-fact))
             session
-            attr->fact)))
+           attr->fact))
         session
         facts))))
   ([session join-node id+attrs vars token alpha-fact]
@@ -364,6 +363,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
      :cljs (do (.push ^js acc n) acc)))
 
 (defn- left-activate-memory-node [session node-id id+attrs  vars token new?]
+  (assert (not= :retract (:kind token)))
   (let [kind (:kind token)
         node-path [:beta-nodes node-id]
         node (get-in session node-path)
@@ -371,8 +371,6 @@ This is no longer necessary, because it is accessible via `match` directly."}
         ;; and the condition doesn't have {:then false}
         ;; let the leaf node trigger
         session (if (and new?
-                         (case kind
-                           (:insert :update)
                            (if-let [what-fn (:what-fn node)]
                              ;; if a what fn was supplied via `wrap-rule`,
                              ;; run it so this fact insertion can be intercepted
@@ -398,8 +396,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                                  :func (if-let [old-fact (:old-fact token)]
                                          (then (-> token :fact :value) (:value old-fact))
                                          true))
-                               true))
-                           false))
+                             true)))
                   (do
                     (when *triggered-node-ids* ;; this is only used to improve errors. see `fire-rules`
                       (vswap! *triggered-node-ids* conj (:leaf-node-id node)))
@@ -417,76 +414,48 @@ This is no longer necessary, because it is accessible via `match` directly."}
                       (binding [*session* session
                                 *match* vars]
                         ((:when-fn node) session vars))))
-        indexed? (:indexed-matches node)
         ;; update session
-        old-match (:match node)
-        
-        session (case kind
-                  (:insert :update)
-                  (let [match (->Match vars enabled?)]
+        session (let [match (->Match vars enabled?)]
                     
                     (as-> session $
                       (if (and leaf-node? (:trigger node) (:then-fn node))
                         (do (prn "adding then queue" node-id
                                  (get-in session [:node-id->rule-name node-id])vars)
                             
-                            (-> $
-                                (update-in node-path assoc-in [:old-matches id+attrs] old-match)
-                                
-                                (update :then-queue update-execute-queue node-id
-                                        id+attrs
-                                        match))
-                            )
+                          (update $ :then-queue update-execute-queue node-id
+                                  id+attrs match))
                         $)
                       (update-in $ node-path assoc :match match)
                       (update-in $ node-path assoc :id+attrs id+attrs)
-                      #_(update-in $ node-path assoc-in [:matches vars]
-                                   match)
-                      #_(if indexed?
-                          (reduce-kv
-                           (fn [$ k v]
-                             (update-in $ node-path assoc-in [:indexed-matches k v id+attrs]
-                                        match))
-                           $
-                           vars)
-                          $)
+                    
                       (update-in $ [:beta-nodes (:parent-id node) :old-id-attrs]
-                                 conj id+attr)))
-                  :retract
-                  (as-> session $
-                    (if old-match
-                      (loop [$ $
-                             node node]
-                        (if node
-                          (recur
-                           (let [old-match (get-in $ [:beta-nodes (:id node) :match])]
-                             (cond->  (update-in $ [:beta-nodes (:id node)] assoc :match nil)
-                               (and (:then-finally-fn node))
-                               (do (prn "THEN-FINALLY QUEUEING" node-id token (:vars old-match))
-                                   (-> $
-                                       (assoc-in [:beta-nodes (:id node) :old-matches id+attrs ]  old-match)
-                                       (update :then-finally-queue update-execute-queue (:id node) id+attrs old-match)))))
-                           (:child (:child node)))
-                          $))
-                      $)
-                    (update-in $ [:beta-nodes (:parent-id node) :old-id-attrs]
-                               disj id+attr)))
-        #_session ]
-    (if (and old-match (= :retract (:kind token)))
-      session
-      (if-let [join-node-id (:child-id node)]
-        (left-activate-join-node session join-node-id id+attrs vars token)
-        session))))
+                               conj id+attr)))]
+    (if-let [join-node-id (:child-id node)]
+      (left-activate-join-node session join-node-id id+attrs vars token)
+      session)))
 
-#_(defn- matches->memory-node
-  "For each match stored in the join node, maybe create a child memory node"
-  [session matches memory-node-id id+attr bindings fact token]
-  (reduce-kv
-   (fn [session id+attrs existing-match]
-     (if-let [vars (get-vars-from-fact (:vars existing-match) bindings fact)]
-       (left-activate-memory-node session memory-node-id (conj id+attrs id+attr) vars token true)
-       session))
-   session matches))
+(defn remove-matches-from-branch [session node id+attr]
+  (let [leaf-node (get-in session [:beta-nodes (:leaf-node-id node)])]
+    (loop [session session
+           node node]
+      (prn "CHECKING THEN-FINALLY" node)
+      (if node
+        (recur
+         (cond-> (update-in session [:beta-nodes (:id node)] assoc :match nil)
+           true (update-in  [:beta-nodes (:parent-id node) :old-id-attrs]
+                            disj id+attr)
+           (and (:then-finally-fn node) (:match node)
+                (do (prn "THEN-FINALLY QUEUEING" (:match node))
+                    true))
+           (update :then-finally-queue update-execute-queue (:id node) (get-in session [:beta-nodes (:parent-id node) :id+attrs]) (:match node)))
+         (:child (:child node)))
+        session
+        #_(let [node leaf-node]
+            (if (and (:then-finally-fn node) (:match node))
+              (-> session
+                  (update-in [:beta-nodes (:id node)] assoc :match nil)
+                  (update  :then-finally-queue update-execute-queue (:id node) (get-in session [:beta-nodes (:parent-id node) :id+attrs]) (:match node)))
+              session))))))
 
 (defn- right-activate-join-node [session node-id id+attr token]
   (let [join-node (get-in session [:beta-nodes node-id])
@@ -494,34 +463,36 @@ This is no longer necessary, because it is accessible via `match` directly."}
         parent (get-in session [:beta-nodes parent-id])
         fact (:fact token)
         child-id (:child-id join-node)
+        child (get-in session [:beta-nodes child-id])
         bindings (-> join-node :condition :bindings)
         id-key (:id-key join-node)]
-    (->
-     (if parent-id
-       (when-let [match (:match parent)]
-         (let [memory-node-chain (loop [acc []
-                                        node parent]
-                                   (if node
-                                     (recur (conj acc node)
-                                            (get-in session
-                                                    [:beta-nodes (:parent-id (get-in session [:beta-nodes (:parent-id node)]))]))
-                                     acc))]
-           #_(when  (not= (:vars match)
-                          (transduce (map (comp :vars :match))
-                                     merge 
-                                     memory-node-chain))
-               (prn "NOT+"(:vars match)
-                    (transduce (map (comp :vars :match))
-                               merge 
-                               memory-node-chain)))
-           (when-let [vars (get-vars-from-fact
-                            (:vars match)
-                            bindings fact)]
-             (left-activate-memory-node session child-id (conj (get parent :id+attrs) id+attr) vars token true))))
-       ;; root node
-       (when-let [vars (get-vars-from-fact {} bindings fact)]
-         (left-activate-memory-node session child-id ((:make-id+attrs session) id+attr) vars token true)))
-     (or session))))
+    (when (some #{:cachinko/pressing?} (flatten id+attr))
+      (prn "THEN-FINALLY EXPECTED????" id+attr node-id token))
+    (or
+     (case (:kind token)
+       :retract
+       (when (:match child) (remove-matches-from-branch session child id+attr))   
+
+       (if parent-id
+         (when-let [match (:match parent)]
+           (let [memory-node-chain (loop [acc []
+                                          node parent]
+                                     (if node
+                                       (recur (conj acc node)
+                                              (get-in session
+                                                      [:beta-nodes (:parent-id (get-in session [:beta-nodes (:parent-id node)]))]))
+                                       acc))]
+             (when-let [vars (get-vars-from-fact
+                              (:vars match)#_(transduce (map (comp :vars :match))
+                                                        merge 
+                                                        memory-node-chain)
+                              #_(:vars match)
+                              bindings fact)]
+               (left-activate-memory-node session child-id (conj (get parent :id+attrs) id+attr) vars token true))))
+         ;; root node
+         (when-let [vars (get-vars-from-fact {} bindings fact)]
+           (left-activate-memory-node session child-id ((:make-id+attrs session) id+attr) vars token true))))
+     session)))
 
 (defn- right-activate-alpha-node [session node-path token]
   (let [fact (:fact token)
@@ -728,15 +699,14 @@ This is no longer necessary, because it is accessible via `match` directly."}
                (let [memory-node (get beta-nodes node-id)
                      ;; old-match (-> memory-node :old-matches (get id+attrs))
                      ;; matches (:matches memory-node)
-                     old-match ((:old-matches memory-node) data)
                      ]
                  (when-let [{:keys [vars enabled]} match]
                    (when enabled
-                     (prn "RUN THEN FN" node-id vars old-match)
+                     (prn "RUN THEN FN" node-id data vars match)
                      (execute-fn #((:then-fn memory-node)
                                    session
                                    (with-meta vars
-                                     {::old-match old-match
+                                     {::old-match nil
                                       ::id+attrs data})) node-id)))))
              {}
              matches))
@@ -750,8 +720,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
              (fn [_ data match]
                (let [memory-node (get beta-nodes node-id)
                      ;; old-vars (-> memory-node :old-matches (get id+attrs) :vars)
-                     old-vars (:vars ((:old-matches memory-node) data)  )]
-                 (prn "RUN THEN-FINALLY" (get-in session [:node-id->rule-name node-id]) old-vars)
+                     old-vars (:vars match)]
+                 (prn "RUN THEN-FINALLY" (get-in session [:node-id->rule-name node-id]) data old-vars)
                  (execute-fn #((:then-finally-fn memory-node)
                                session
                                (with-meta old-vars {::id+attrs data})) node-id))
@@ -966,6 +936,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
 (defn retract
   "Retracts the fact with the given id + attr combo."
   [session id attr]
+  (when (= attr :pixi/container)
+    (prn "RETRACTING CONTAINER" id))
   (let [node-paths (get-in session [:id-attr-nodes ((:make-id+attr session) id attr)])]
      (if node-paths
        (reduce
