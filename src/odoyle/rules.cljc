@@ -473,27 +473,25 @@ This is no longer necessary, because it is accessible via `match` directly."}
         bindings (-> join-node :condition :bindings)
         fact (:fact token)
         id-key (:id-key join-node)
-        child-id (:child-id join-node)]
+        child-id (:child-id join-node)
+        indexed-matches (:indexed-matches parent)]
     (if parent-id
       (if (zero? (count all-matches))
         session
-        (if-let [indexed-matches
-                 (and (:indexed-matches parent)
+        (if-let [matches
+                 (and indexed-matches
                       (not-empty
+                       (some->> (get-vars-from-fact {} bindings fact)
                        (reduce-kv
-                        (fn [acc k v] (merge acc (get-in session [:beta-nodes parent-id :indexed-matches k v])))
-                        {}
-                        (get-vars-from-fact {} bindings fact))))]
+                                 (fn [acc k v] (conj! acc (some-> (indexed-matches k) (get v))))
+                                 (transient {}))
+                                persistent!)))]
           (do
             #_(prn "INDEX SAVED" (map :key bindings) (count indexed-matches) "/"(count all-matches))
-            (matches->memory-node
-             session indexed-matches
-             child-id id+attr bindings fact token))
+            (matches->memory-node session matches child-id id+attr bindings fact token))
 
-          (if (and id-key (some-> (get-in session [:beta-nodes parent-id :indexed-matches id-key])
-                                  (not= (:id fact))))
+          (if (and id-key (some-> (indexed-matches id-key) (not= (:id fact))))
             session
-            
             (do
               (when (and (> (count all-matches) 1)
                          (:indexed-matches parent))
