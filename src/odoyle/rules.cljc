@@ -286,22 +286,21 @@ This is no longer necessary, because it is accessible via `match` directly."}
          (assoc :last-id @*last-id))
      acc]))
 
-(def missing ::missing)
 (defn- get-vars-from-fact
-  "Binds vars from fact, or returns nil to act as a filter for
-  skipping beta memory activation"
+  "Checks consistency of bindings, given an incoming fact and existing
+  bound variables as a map.  If consistent, returns a new map with
+  both existing bound variables and new variables bound to the fact."
   [vars bindings fact]
   (reduce
    (fn [m binding]
-     (let [var-key (:key binding)
-           x (var-key m missing)
-           missing? (identical? missing x)
-           fact-val (case (:field binding)
-                      :id (:id fact)
-                      :attr (:attr fact)
-                      :value (:value fact))]
-       (if (or missing? (= x fact-val))
-         (assoc m var-key fact-val)
+     (let [k (:key binding)
+           v (case (:field binding)
+               :id (:id fact)
+               :attr (:attr fact)
+               :value (:value fact))
+           consistent? (= (m k v) v)]
+       (if consistent?
+         (assoc m k v)
          (reduced nil))))
    vars
    bindings))
