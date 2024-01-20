@@ -410,21 +410,23 @@ This is no longer necessary, because it is accessible via `match` directly."}
                     #_(prn "NODE IS INDEXED?"indexed? vars)
                     (as-> session $
                       (if (and leaf-node? (:trigger node) (:then-fn node))
-                        (-> $
-                            (update :then-queue update-execute-queue node-id id+attrs
-                                    (-> (get-in session node-path) (get-in [:matches id+attrs]))))
+                        (update $ :then-queue update-execute-queue node-id id+attrs
+                                (get-in session [:beta-nodes node-id :matches id+attrs]))
                         $)
+
+                      (update-in $ node-path
+                                 (fn [node]
+                                   (let [node (assoc-in node [:matches id+attrs] match)]
+                                     (if indexed?
+                                       (reduce-kv
+                                        (fn [node k v]
+                                          (assoc-in node [:indexed-matches k v id+attrs] match))
+                                        node
+                                        vars)
+                                       node))))
                       
-                      (update-in $ node-path assoc-in [:matches id+attrs] match)
                       
-                      (if indexed?
-                        (reduce-kv
-                         (fn [$ k v]
-                           (update-in $ node-path assoc-in [:indexed-matches k v id+attrs]
-                                      match))
-                         $
-                         vars)
-                        $)
+
                       (update-in $ [:beta-nodes (:parent-id node) :old-id-attrs]
                                  conj id+attr)))
                   :retract
@@ -436,16 +438,16 @@ This is no longer necessary, because it is accessible via `match` directly."}
                                   (-> (get-in session node-path)
                                       (get-in [:matches id+attrs]))))
                       $)
-                    (update-in $ node-path update :matches dissoc id+attrs)
-                    
-                    (if indexed?
-                      (reduce-kv
-                       (fn [$ k v]
-                         (update-in $ node-path update-in [:indexed-matches k v]
-                                    dissoc  id+attrs))
-                       $
-                       vars)
-                      $)
+                    (update-in $ node-path
+                               (fn [node]
+                                 (let [node (update node :matches dissoc id+attrs)]
+                                   (if indexed?
+                                     (reduce-kv
+                                      (fn [node k v]
+                                        (update-in node [:indexed-matches k v] dissoc id+attrs))
+                                      node
+                                      vars)
+                                     node))))
                     
                     (update-in $ [:beta-nodes (:parent-id node) :old-id-attrs]
                                disj id+attr)))]
