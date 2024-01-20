@@ -263,7 +263,8 @@ This is no longer necessary, because it is accessible via `match` directly."}
                                    :condition condition
                                    :matches {}
                                    :trigger false
-                                   :indexed-matches (when (-> acc :bindings :joins seq) {})})
+                                   ;; TODO shouldn't always index?
+                                   :indexed-matches {}#_(when (-> acc :bindings :joins seq) {})})
         join-node (map->JoinNode {:id join-node-id
                                   :parent-id parent-mem-node-id
                                   :child-id mem-node-id
@@ -416,8 +417,9 @@ This is no longer necessary, because it is accessible via `match` directly."}
                                            (get-in [:matches id+attrs])))
                             (update :then-queue update-execute-queue node-id id+attrs nil))
                         $)
-                      (update-in $ node-path assoc-in [:matches id+attrs]
-                                 match)
+                      
+                      (update-in $ node-path assoc-in [:matches id+attrs] match)
+                      
                       (if indexed?
                         (reduce-kv
                          (fn [$ k v]
@@ -1011,5 +1013,3 @@ This is no longer necessary, because it is accessible via `match` directly."}
             (fn wrap-then-finally [f]
               (fn [session old-match]
                 (then-finally-fn f session old-match))))))
-
-
