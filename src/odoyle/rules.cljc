@@ -127,21 +127,11 @@ This is no longer necessary, because it is accessible via `match` directly."}
                     make-id+attrs ;; function, default is `vector`
                     ])
 
-(defn execute-queue []
-  {})
+(defn execute-queue [] {})
 (defn remove-node-from-execute-queue [queue node-id]
-  #_(into [] (remove (fn [execution](= (:node-id execution) node-id)))
-          queue)
-  (dissoc queue node-id)
-  #_(reduce (fn [s execution]
-              (if (= (:node-id execution) node-id)
-                (reduced (disj s execution)) s))
-            queue
-            queue))
+  (dissoc queue node-id))
 (defn update-execute-queue [queue node-id id+attrs data]
   (update queue node-id assoc id+attrs data))
-
-
 
 (defn- add-to-condition [condition field [kind value]]
   (case kind
@@ -343,11 +333,6 @@ This is no longer necessary, because it is accessible via `match` directly."}
 
 (def ^:private ^:dynamic *triggered-node-ids* nil)
 
-#_#_(defn fast-set [] #?(:clj #{} :cljs (js/Array.)))
-(defn conj-set [acc n]
-  #?(:clj (conj acc n)
-     :cljs (do (.push ^js acc n) acc)))
-
 (defn- left-activate-memory-node [session node-id id+attrs vars token new?]
   (let [kind (:kind token)
         node-path [:beta-nodes node-id]
@@ -421,8 +406,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                                        (reduce-kv
                                         (fn [node k v]
                                           (assoc-in node [:indexed-matches k v id+attrs] match))
-                                        node
-                                        vars)
+                                        node vars)
                                        node))))
                       
                       
@@ -445,8 +429,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                                      (reduce-kv
                                       (fn [node k v]
                                         (update-in node [:indexed-matches k v] dissoc id+attrs))
-                                      node
-                                      vars)
+                                      node vars)
                                      node))))
                     
                     (update-in $ [:beta-nodes (:parent-id node) :old-id-attrs]
@@ -502,9 +485,7 @@ This is no longer necessary, because it is accessible via `match` directly."}
                      fact
                      #_(keys (:indexed-matches parent))))
               ;; missed index, full scan
-              (matches->memory-node
-               session all-matches
-               child-id id+attr bindings fact token)))))
+              (matches->memory-node session all-matches child-id id+attr bindings fact token)))))
       ;; root node
       (if-let [vars (get-vars-from-fact {} bindings fact)]
         (left-activate-memory-node session child-id ((:make-id+attrs session) id+attr) vars token true)
