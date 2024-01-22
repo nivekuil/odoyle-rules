@@ -92,6 +92,7 @@
                      alpha-node-path ;; the get-in vector to reach the parent AlphaNode from the root
                      condition ;; Condition associated with this node
                      id-key ;; the name of the id binding if we know it
+                     value-key ;; the name of the id binding if we know it
                      old-id-attrs ;; a set of id+attr so the node can keep track of which facts are "new"
                      disable-fast-updates ;; boolean indicating it isn't safe to do fast updates
                      ])
@@ -302,13 +303,17 @@
      (if-let [id (some->> (:id-key join-node) (vars))]
        (let [alpha-fact (first (vals (get facts id)))]
           (left-activate-join-node session join-node id+attrs vars token alpha-fact))
+       (if-let [value (some->> (:value-key join-node) (vars))]
+         (let [alpha-fact (first (vals (get facts value)))]
+           (left-activate-join-node session join-node id+attrs vars token alpha-fact))
        (do
+           ;; this should never be hit if attributes cannot be bound
          #_(prn "checking" (get-in session [:node-id->rule-name (get-in session [:beta-nodes (:parent-id join-node) :leaf-node-id])])(count facts) (count (vals facts))vars )
        (reduce-kv
         (fn [session _ attr->fact]
             (left-activate-join-node session join-node id+attrs vars token (first (vals attr->fact) )))
         session
-          facts)))))
+            facts))))))
   ([session join-node id+attrs vars token alpha-fact]
    (if-let [new-vars (get-vars-from-fact vars (-> join-node :condition :bindings) alpha-fact)]
      (let [id+attr (get-id-attr session alpha-fact)
@@ -745,31 +750,31 @@
         session (reduce (fn [session join-node-id]
                           (update-in session [:beta-nodes join-node-id]
                                      (fn [join-node]
-                                       (let [joined-key (some (fn [{:keys [field key]}]
-                                                                (when (= :value field)
-                                                                  key))
-                                                              (-> join-node :condition :bindings))
-                                             disable-fast-updates (clojure.core/contains?
-                                                                   (:joins bindings)
-                                                                   joined-key)]
-                                         (when (and disable-fast-updates
+                                       (let [node-bindings (-> join-node :condition :bindings)
+                                             joins (:joins bindings)
+                                             value-join-key (some (fn [{:keys [field key]}]
+                                                                    (when (= :value field) key))
+                                                                  node-bindings)
+                                             join-on-value? (clojure.core/contains? joins value-join-key)]
+                                         (when (and join-on-value?
                                                     (-> (get-in session [:beta-nodes (:child-id join-node)])
                                                         :condition :opts :then first (= :func)))
-                                           (throw (ex-info (str "In " (:name rule) " you are making a join with the symbol `" (symbol joined-key) "`, "
+                                           (throw (ex-info (str "In " (:name rule) " you are making a join with the symbol `" (symbol value-join-key) "`, "
                                                                 "and passing a custom function in the {:then ...} option. This is not allowed due to "
                                                                 "how the implementation works. Luckily, it's easy to fix! Get rid of this join in your :what "
-                                                                "block by giving the symbol a different name, such as `" (symbol (str (name joined-key) 2)) "`, "
-                                                                "and then enforce the join in your :when block like this: " (list '= (symbol joined-key)
-                                                                                                                                  (symbol (str (name joined-key) 2))))
+                                                                "block by giving the symbol a different name, such as `" (symbol (str (name value-join-key) 2)) "`, "
+                                                                "and then enforce the join in your :when block like this: " (list '= (symbol value-join-key)
+                                                                                                                                  (symbol (str (name value-join-key) 2))))
                                                            {})))
                                          (assoc join-node
                                                 :id-key (some (fn [{:keys [field key]}]
                                                                 (when (and (= :id field)
-                                                                           (clojure.core/contains? (:joins bindings) key))
-                                                                  key))
-                                                              (-> join-node :condition :bindings))
+                                                                           (clojure.core/contains? joins key))
+                                                                     key))
+                                                              node-bindings)
+                                                :value-key (when join-on-value? value-join-key)
                                                 ;; disable fast updates for facts whose value is part of a join
-                                                :disable-fast-updates disable-fast-updates)))))
+                                                :disable-fast-updates join-on-value?)))))
                         session
                         join-node-ids)]
     (-> session
