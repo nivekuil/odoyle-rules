@@ -259,7 +259,8 @@
         successor-ids (conj (:successors (get-in session alpha-node-path))
                             join-node-id)
         ;; successors must be sorted by ancestry (descendents first) to avoid duplicate rule firings
-        successor-ids (vec (sort (partial is-ancestor session) successor-ids))]
+        ;; ref. Doorenbos 27
+        successor-ids (vec (sort #(is-ancestor session %1 %2) successor-ids))]
     [(-> session
          (update-in alpha-node-path assoc :successors successor-ids)
          (cond-> parent-mem-node-id
@@ -435,9 +436,10 @@
    session matches))
 
 (defn- right-activate-join-node [session node-id id+attr token]
-  (let [join-node (get-in session [:beta-nodes node-id])
+  (let [beta-nodes (:beta-nodes session)
+        join-node (beta-nodes node-id)
         parent-id (:parent-id join-node)
-        parent (get-in session [:beta-nodes parent-id])
+        parent (beta-nodes parent-id)
         all-matches (:matches parent)
         bindings (-> join-node :condition :bindings)
         fact (:fact token)
@@ -452,7 +454,9 @@
                       (not-empty
                        (some->> (get-vars-from-fact {} bindings fact)
                        (reduce-kv
-                                 (fn [acc k v] (conj! acc (some-> (indexed-matches k) (get v))))
+                                 (fn [acc k v] (if-let [vs (indexed-matches k)]
+                                               (conj! acc (vs v))
+                                               acc))
                                  (transient {}))
                                 persistent!)))]
           (do
@@ -462,14 +466,12 @@
           (if (and id-key (some-> (indexed-matches id-key) (not= (:id fact))))
             session
             (do
-              (when (and (> (count all-matches) 1)
-                         (:indexed-matches parent))
+              (when (and indexed-matches (> (count all-matches) 1))
                 (prn "INDEX MISSED"
                      (count all-matches)
                      (:kind token)
                      (map :key bindings)
-                     fact
-                     #_(keys (:indexed-matches parent))))
+                     fact))
               ;; missed index, full scan
               (matches->memory-node session all-matches child-id id+attr bindings fact token)))))
       ;; root node
