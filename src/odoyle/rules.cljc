@@ -71,6 +71,7 @@
                       children ;; vector of AlphaNode
                       successors ;; vector of JoinNode ids
                       facts ;; map of id -> (map of attr -> Fact)
+                      ;; NOTE facts can just be id->Fact because unique attributes
                       ])
 (defrecord MemoryNode [id
                        parent-id ;; JoinNode id
@@ -299,26 +300,22 @@
          facts (:facts alpha-node)]
      ;; SHORTCUT: if we know the id, only loop over alpha facts with that id
      (if-let [id (some->> (:id-key join-node) (vars))]
-       (reduce-kv
-        (fn [session _ alpha-fact]
+       (let [alpha-fact (first (vals (get facts id)))]
           (left-activate-join-node session join-node id+attrs vars token alpha-fact))
-        session
-        (get facts id))
+       (do
+         #_(prn "checking" (get-in session [:node-id->rule-name (get-in session [:beta-nodes (:parent-id join-node) :leaf-node-id])])(count facts) (count (vals facts))vars )
        (reduce-kv
         (fn [session _ attr->fact]
-          (reduce-kv
-           (fn [session _ alpha-fact]
-             (left-activate-join-node session join-node id+attrs vars token alpha-fact))
-           session
-           attr->fact))
+            (left-activate-join-node session join-node id+attrs vars token (first (vals attr->fact) )))
         session
-        facts))))
+          facts)))))
   ([session join-node id+attrs vars token alpha-fact]
    (if-let [new-vars (get-vars-from-fact vars (-> join-node :condition :bindings) alpha-fact)]
      (let [id+attr (get-id-attr session alpha-fact)
            id+attrs (conj id+attrs id+attr)
            new-token (->Token alpha-fact (:kind token) nil)
            new? (not (clojure.core/contains? (:old-id-attrs join-node) id+attr))]
+       #_(prn "got fact" alpha-fact new-vars)
        (left-activate-memory-node session (:child-id join-node) id+attrs new-vars new-token new?))
      session)))
 
