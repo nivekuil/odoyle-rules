@@ -398,7 +398,9 @@
                                                 indexed? (assoc :indexed-matches
                                                                 (reduce-kv
                                                                  (fn [indexed-matches k v]
-                                                                   (assoc-in indexed-matches [k v id+attrs] match))
+                                                                   (assoc indexed-matches k
+                                                                          (update (indexed-matches k) v
+                                                                                  assoc id+attrs match)))
                                                                  (:indexed-matches node)
                                                                  vars)))))
                                
@@ -406,9 +408,8 @@
                   :retract
                   (as-> session $
                     (if (and leaf-node? (:then-finally-fn node))
-                      (-> $
-                          (update :then-finally-queue update-execute-queue node-id id+attrs
-                                  (get (:matches node) id+attrs)))
+                      (update $ :then-finally-queue update-execute-queue node-id id+attrs
+                              (get (:matches node) id+attrs))
                       $)
                     (assoc $ :beta-nodes
                            (assoc (:beta-nodes session) node-id
@@ -417,7 +418,7 @@
                                       (reduce-kv
                                        (fn [node k v]
                                          (assoc node :indexed-matches
-                                                (update-in (:indexed-matches node) [k v] dissoc id+attrs)))
+                                                (update (:indexed-matches node) k update v dissoc id+attrs)))
                                        node vars)
                                       node))))
 
@@ -442,11 +443,11 @@
         join-node (beta-nodes node-id)
         parent-id (:parent-id join-node)
         parent (beta-nodes parent-id)
-        all-matches (:matches parent)
         bindings (-> join-node :condition :bindings)
         fact (:fact token)
         id-key (:id-key join-node)
         child-id (:child-id join-node)
+        all-matches (:matches parent)
         indexed-matches (:indexed-matches parent)]
     (if parent-id
       (if (zero? (count all-matches))
