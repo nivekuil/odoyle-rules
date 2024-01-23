@@ -1,8 +1,7 @@
 (ns odoyle.types)
 
 (def make-id+attr
-  #?(:default vector
-     :cljs (do (deftype IdAttr [id attr ^:mutable ^number _hasheq]
+  #?(:cljs (do (deftype IdAttr [id attr ^:mutable ^number _hasheq]
                  Object
                  (toString [coll]
                    (str id ","attr ))
@@ -24,11 +23,11 @@
                    (if (zero? _hasheq)
                      (set! _hasheq (+ (* 31 (hash id)) (hash attr)))
                      _hasheq)))
-               (fn [id attr] (->IdAttr id attr 0)))))
+               (fn [id attr] (->IdAttr id attr 0)))
+     :default vector))
 
 (def make-id+attrs
-  #?(:default vector
-     :cljs (do (deftype IdAttrs [last-object h]
+  #?(:cljs (do (deftype IdAttrs [last-object h]
                  IStack
                  (-peek [coll] last-object)
                  ICollection
@@ -44,4 +43,5 @@
                  IHash
                  (-hash [o] h))
                (fn [id+attr]
-                 (->IdAttrs id+attr (* 31 (hash id+attr)))))))
+                 (->IdAttrs id+attr (* 31 (hash id+attr)))))
+     :default vector))
