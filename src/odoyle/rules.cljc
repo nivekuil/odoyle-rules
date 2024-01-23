@@ -71,7 +71,7 @@
                       children ;; vector of AlphaNode
                       successors ;; vector of JoinNode ids
                       facts ;; map of id -> attr -> Fact
-                      facts-by-value ;; map of value -> attr -> Fact
+                      facts-by-value ;; map of value -> Fact
                       ])
 (defrecord MemoryNode [id
                        parent-id ;; JoinNode id
@@ -303,9 +303,12 @@
      ;; SHORTCUT: if we know the id, only loop over alpha facts with that id
      (if-let [id (some->> (:id-key join-node) (vars))]
        (let [alpha-fact (first (vals (get facts id)))]
+         (assert (<= (count (get facts id)) 1)
+                 (str "ERROR!! MISTAKEN ASSUMPTION, NOT ALWAYS CARDINALITY 1?"
+                      (count (get facts id)) vars token))
           (left-activate-join-node session join-node id+attrs vars token alpha-fact))
        (if-let [value (some->> (:value-key join-node) (vars))]
-         (let [alpha-fact (first (vals ((:facts-by-value alpha-node) value)))]
+         (let [alpha-fact ((:facts-by-value alpha-node) value)]
            (left-activate-join-node session join-node id+attrs vars token alpha-fact))
        (do
          #_(prn "checking" (get-in session [:node-id->rule-name (get-in session [:beta-nodes (:parent-id join-node) :leaf-node-id])])(count facts) (count (vals facts))vars )
@@ -495,7 +498,7 @@
         :insert
         (-> $
             (update-in node-path assoc-in [:facts id attr] fact)
-            (update-in node-path assoc-in [:facts-by-value value attr] fact)
+            (update-in node-path assoc [:facts-by-value value] fact)
             (update-in [:id-attr-nodes id+attr]
                        (fn [node-paths]
                          (let [node-paths (or node-paths #{})]
@@ -504,7 +507,7 @@
         :retract
         (-> $
             (update-in node-path update-in [:facts id] dissoc attr)
-            (update-in node-path update-in [:facts-by-value value] dissoc attr)
+            (update-in node-path update :facts-by-value dissoc attr)
             (update :id-attr-nodes
                     (fn [nodes]
                       (let [node-paths (get nodes id+attr)
@@ -519,7 +522,7 @@
                        (fn [existing-old-fact]
                          (assert (= old-fact existing-old-fact))
                          fact))
-            (update-in node-path assoc-in [:facts-by-value value attr] fact)))
+            (update-in node-path assoc-in [:facts-by-value value] fact)))
       (reduce
        (fn [session child-id]
          (if (case kind
