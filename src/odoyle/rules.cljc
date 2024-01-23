@@ -70,8 +70,8 @@
                       test-value ;; anything
                       children ;; vector of AlphaNode
                       successors ;; vector of JoinNode ids
-                      facts ;; map of id -> (map of attr -> Fact)
-                      ;; NOTE facts can just be id->Fact because unique attributes
+                      facts ;; map of id -> attr -> Fact
+                      facts-by-value ;; map of value -> attr -> Fact
                       ])
 (defrecord MemoryNode [id
                        parent-id ;; JoinNode id
@@ -133,7 +133,8 @@
                                                           :test-value value
                                                           :children []
                                                           :successors []
-                                                          :facts {}}))))
+                                                          :facts {}
+                                                          :facts-by-value {}}))))
 
 (defn- ->condition [{:keys [id attr value opts]}]
   (-> {:bindings [] :nodes [] :opts opts}
@@ -304,10 +305,9 @@
        (let [alpha-fact (first (vals (get facts id)))]
           (left-activate-join-node session join-node id+attrs vars token alpha-fact))
        (if-let [value (some->> (:value-key join-node) (vars))]
-         (let [alpha-fact (first (vals (get facts value)))]
+         (let [alpha-fact (first (vals ((:facts-by-value alpha-node) value)))]
            (left-activate-join-node session join-node id+attrs vars token alpha-fact))
        (do
-           ;; this should never be hit if attributes cannot be bound
          #_(prn "checking" (get-in session [:node-id->rule-name (get-in session [:beta-nodes (:parent-id join-node) :leaf-node-id])])(count facts) (count (vals facts))vars )
        (reduce-kv
         (fn [session _ attr->fact]
@@ -485,12 +485,16 @@
   (let [fact (:fact token)
         kind (:kind token)
         old-fact (:old-fact token)
-        [id attr :as id+attr] (get-id-attr session fact)]
+        id+attr (get-id-attr session fact)
+        id (:id fact)
+        attr (:attr fact)
+        value (:value fact)]
     (as-> session $
       (case kind
         :insert
         (-> $
             (update-in node-path assoc-in [:facts id attr] fact)
+            (update-in node-path assoc-in [:facts-by-value value attr] fact)
             (update-in [:id-attr-nodes id+attr]
                        (fn [node-paths]
                          (let [node-paths (or node-paths #{})]
@@ -499,6 +503,7 @@
         :retract
         (-> $
             (update-in node-path update-in [:facts id] dissoc attr)
+            (update-in node-path update-in [:facts-by-value value] dissoc attr)
             (update :id-attr-nodes
                     (fn [nodes]
                       (let [node-paths (get nodes id+attr)
@@ -512,7 +517,8 @@
             (update-in node-path update-in [:facts id attr]
                        (fn [existing-old-fact]
                          (assert (= old-fact existing-old-fact))
-                         fact))))
+                         fact))
+            (update-in node-path assoc-in [:facts-by-value value attr] fact)))
       (reduce
        (fn [session child-id]
          (if (case kind
@@ -841,7 +847,8 @@
                                  :test-value nil
                                  :children []
                                  :successors []
-                                 :facts {}})
+                                  :facts {}
+                                  :facts-by-value {} })
     :beta-nodes {}
     :last-id -1
     :rule-name->node-id {}
