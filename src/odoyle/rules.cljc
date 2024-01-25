@@ -71,7 +71,7 @@
                       children ;; vector of AlphaNode
                       successors ;; vector of JoinNode ids
                       facts ;; map of id -> attr -> Fact
-                      facts-by-value ;; map of value -> Fact
+                      facts-by-value ;; map of value -> id -> Fact
                       ])
 (defrecord MemoryNode [id
                        parent-id ;; JoinNode id
@@ -294,28 +294,39 @@
   ((:make-id+attr session) (:id m) (:attr m)))
 
 (declare left-activate-memory-node)
-
 (defn- left-activate-join-node
   ([session node-id id+attrs vars token]
    (let [join-node ((:beta-nodes session) node-id)
          alpha-node (get-in session (:alpha-node-path join-node))
          facts (:facts alpha-node)]
      ;; SHORTCUT: if we know the id, only loop over alpha facts with that id
-     (if-let [id (some->> (:id-key join-node) (vars))]
+     (if-let [id (some-> (:id-key join-node) (vars))]
        (let [alpha-fact (first (vals (get facts id)))]
          (assert (<= (count (get facts id)) 1)
                  (str "ERROR!! MISTAKEN ASSUMPTION, NOT ALWAYS CARDINALITY 1?"
                       (count (get facts id)) vars token))
-          (left-activate-join-node session join-node id+attrs vars token alpha-fact))
-       (if-let [value (some->> (:value-key join-node) (vars))]
-         (let [alpha-fact ((:facts-by-value alpha-node) value)]
-           (left-activate-join-node session join-node id+attrs vars token alpha-fact))
-       (do
-         #_(prn "checking" (get-in session [:node-id->rule-name (get-in session [:beta-nodes (:parent-id join-node) :leaf-node-id])])(count facts) (count (vals facts))vars )
-       (reduce-kv
-        (fn [session _ attr->fact]
-            (left-activate-join-node session join-node id+attrs vars token (first (vals attr->fact) )))
-        session
+         (left-activate-join-node session join-node id+attrs vars token alpha-fact))
+       (if-let [value-key (let [k (:value-key join-node)]
+                            (and (clojure.core/contains? vars k) k))]
+           (reduce-kv
+            (fn [session _id fact]
+              (left-activate-join-node session join-node id+attrs vars token fact))
+            session
+          ((:facts-by-value alpha-node) (vars value-key)))
+         (do 
+           (when (> (count facts) 99)
+             (prn "scanning alpha memory"
+                  (get-in session [:node-id->rule-name (get-in session [:beta-nodes (:parent-id join-node) :leaf-node-id])])
+                  (count facts)
+                  (count (vals facts))
+                  vars ))
+           (reduce-kv
+            (fn [session _ attr->fact]
+              (reduce-kv (fn [session _ fact]
+                           (left-activate-join-node session join-node id+attrs vars token fact))
+                         session
+                         attr->fact))
+            session
             facts))))))
   ([session join-node id+attrs vars token alpha-fact]
    (if-let [new-vars (get-vars-from-fact vars (-> join-node :condition :bindings) alpha-fact)]
@@ -499,7 +510,7 @@
         :insert
         (-> $
             (update-in node-path assoc-in [:facts id attr] fact)
-            (update-in node-path assoc [:facts-by-value value] fact)
+            (update-in node-path assoc-in [:facts-by-value value id] fact)
             (update-in [:id-attr-nodes id+attr]
                        (fn [node-paths]
                          (let [node-paths (or node-paths #{})]
@@ -508,7 +519,7 @@
         :retract
         (-> $
             (update-in node-path update-in [:facts id] dissoc attr)
-            (update-in node-path update :facts-by-value dissoc attr)
+            (update-in node-path update-in [:facts-by-value value] dissoc id)
             (update :id-attr-nodes
                     (fn [nodes]
                       (let [node-paths (get nodes id+attr)
@@ -523,7 +534,7 @@
                        (fn [existing-old-fact]
                          (assert (= old-fact existing-old-fact))
                          fact))
-            (update-in node-path assoc-in [:facts-by-value value] fact)))
+            (update-in node-path assoc-in [:facts-by-value value id] fact)))
       (reduce
        (fn [session child-id]
          (if (case kind
