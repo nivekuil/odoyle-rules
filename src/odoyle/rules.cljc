@@ -448,7 +448,6 @@
         parent (beta-nodes parent-id)
         bindings (-> join-node :condition :bindings)
         fact (:fact token)
-        id-key (:id-key join-node)
         child-id (:child-id join-node)
         all-matches (:matches parent)
         indexed-matches (:indexed-matches parent)]
@@ -469,7 +468,9 @@
             #_(prn "INDEX SAVED" (map :key bindings) (count indexed-matches) "/"(count all-matches))
             (matches->memory-node session matches child-id id+attr bindings fact token))
 
-          (if (and id-key (some-> (indexed-matches id-key) (not= (:id fact))))
+          (if (some-> (:id-key join-node) (indexed-matches) (not= (:id fact)))
+            session
+            (if (some-> (:value-key join-node) (indexed-matches)  (not= (:value fact)) )
             session
             (do
               (when (and indexed-matches (> (count all-matches) 1))
