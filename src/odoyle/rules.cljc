@@ -476,7 +476,7 @@
                                  (transient {}))
                                 persistent!)))]
           (do
-            #_(prn "INDEX SAVED" (map :key bindings) (count indexed-matches) "/"(count all-matches))
+            #_(prn "INDEX SAVED" (map :key bindings) (count matches) "/"(count all-matches))
             (matches->memory-node session matches child-id id+attr bindings fact token))
 
           (if (some-> (:id-key join-node) (indexed-matches) (not= (:id fact)))
@@ -484,14 +484,15 @@
             (if (some-> (:value-key join-node) (indexed-matches)  (not= (:value fact)) )
             session
             (do
-              (when (and indexed-matches (> (count all-matches) 1))
+                (when (> (count all-matches) 99)
                 (prn "INDEX MISSED"
                      (count all-matches)
+                       (get-in session [:node-id->rule-name (:leaf-node-id parent)])
                      (:kind token)
                      (map :key bindings)
                      fact))
               ;; missed index, full scan
-              (matches->memory-node session all-matches child-id id+attr bindings fact token)))))
+                (matches->memory-node session all-matches child-id id+attr bindings fact token))))))
       ;; root node
       (if-let [vars (get-vars-from-fact {} bindings fact)]
         (left-activate-memory-node session child-id ((:make-id+attrs session) id+attr) vars token true)
@@ -671,10 +672,9 @@
                        The default is 16. Pass nil to disable the limit entirely."
   ([session]
    (fire-rules session {}))
-  ([session opts]
-   (let [session (if-let [transform (:transform opts)]
-                   (transform session)
-                   session)
+  ([session {:keys [transform] :as opts
+             :or {transform identity}}]
+   (let [session (transform session)
          then-queue (:then-queue session)
          then-finally-queue (:then-finally-queue session)]
 
