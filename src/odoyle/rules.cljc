@@ -519,7 +519,13 @@
                            (conj node-paths node-path)))))
         :retract
         (-> $
-            (update-in node-path update-in [:facts id] dissoc attr)
+            (update-in node-path update :facts (fn [e->a->v]
+						 (let [a->v (e->a->v id)
+						       cleanup? (= 1 (count a->v))]
+						   (assert (clojure.core/contains? a->v attr))
+						   (if cleanup?
+						     (dissoc e->a->v id)
+						     (assoc e->a->v id (dissoc a->v attr))))))
             (update-in node-path update-in [:facts-by-value value] dissoc id)
             (update :id-attr-nodes
                     (fn [nodes]
